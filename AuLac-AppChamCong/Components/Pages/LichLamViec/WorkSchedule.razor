@@ -1,0 +1,274 @@
+﻿@* @page "/lichLamViec"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Services
+@using System.Text.Json
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject LichLamViecService LichLamViecService
+
+<div class="container my-3">
+    <div class="header">
+        <button class="back-btn" @onclick="TroVe">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <h2 class="page-title mb-3">Tạo Lịch Làm Việc</h2>
+        <div class="icon-placeholder"></div>
+    </div>
+    <div class="card shadow-sm p-3">
+        <!-- Loại công việc -->
+        <div class="form-group mb-3">
+            <label for="loaiCongViecID" class="form-label fw-semibold">Loại Công Việc</label>
+            <select class="form-select form-select-lg" id="loaiCongViecID" @bind="lichLamViec.LoaiCongViecID">
+                <option value="0" disabled selected>Chọn loại công việc...</option>
+                <option value="1">Công việc 1</option>
+                <option value="2">Công việc 2</option>
+                <option value="3">Công việc 3</option>
+            </select>
+        </div>
+
+        <!-- Ngày trực -->
+        <div class="form-group mb-3">
+            <label for="ngayTruc" class="form-label fw-semibold">Ngày Trực</label>
+            <input type="date" class="form-control form-control-lg" id="ngayTruc"
+                   @bind="lichLamViec.NgayTruc" @bind:event="oninput" />
+        </div>
+
+        <!-- Thời gian bắt đầu và kết thúc -->
+        <div class="col mb-3 gx-2">
+            <div class="col-12">
+                <div class="form-group">
+                    <label for="thoiGianBatDau" class="form-label fw-semibold">Thời Gian Bắt Đầu</label>
+                    <input type="time" class="form-control form-control-lg" id="thoiGianBatDau"
+                           @bind="thoiGianBatDau" @bind:event="oninput" />
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="form-group">
+                    <label for="thoiGianKetThuc" class="form-label fw-semibold">Thời Gian Kết Thúc</label>
+                    <input type="time" class="form-control form-control-lg" id="thoiGianKetThuc"
+                           @bind="thoiGianKetThuc" @bind:event="oninput" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Phân loại -->
+        <div class="form-group mb-3">
+            <label for="phanLoai" class="form-label fw-semibold">Phân Loai</label>
+            <select class="form-select form-select-lg" id="phanLoai" @bind="lichLamViec.PhanLoai">
+                <option value="0" disabled selected>Chọn phân loại...</option>
+                <option value="1">Ca ngày</option>
+                <option value="2">Ca đêm</option>
+                <option value="3">Ca đặc biệt</option>
+            </select>
+        </div>
+
+        <!-- Nội dung chi tiết -->
+        <div class="form-group mb-3">
+            <label for="noiDungChiTiet" class="form-label fw-semibold">Nội Dung Chi Tiết</label>
+            <textarea class="form-control" id="noiDungChiTiet" rows="3" placeholder="Nhập nội dung chi tiết"
+                      @bind="lichLamViec.NoiDungChiTiet" @bind:event="oninput"></textarea>
+        </div>
+
+        <!-- Buttons -->
+        <div class="d-flex justify-content-between mt-3">
+            <button type="button" class="btn btn-primary btn-lg w-45" @onclick="HandleSubmit" disabled="@isLoading">
+                <i class="bi bi-send me-2"></i>@(isLoading ? "Đang gửi..." : "Gửi")
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-lg w-45" @onclick="Cancel">
+                <i class="bi bi-x-circle me-2"></i>Hủy
+            </button>
+        </div>
+
+        <!-- Message -->
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @(success ? "alert-success" : "alert-danger") mt-3" role="alert">
+                @message
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private LichLamViecDb lichLamViec = new LichLamViecDb
+        {
+            LoaiCongViecID = 0,
+            NgayTruc = DateTime.Now,
+            ThoiGianBatDau = DateTime.Now.Date.AddHours(8), // 8:00 AM
+            ThoiGianKetThuc = DateTime.Now.Date.AddHours(17), // 5:00 PM
+            PhanLoai = 0,
+            NoiDungChiTiet = string.Empty
+        };
+
+    // Biến tạm để bind với input type="time"
+    private string thoiGianBatDau = "08:00";
+    private string thoiGianKetThuc = "17:00";
+
+    private string message = string.Empty;
+    private bool success = false;
+    private bool isLoading = false;
+
+    private async Task HandleSubmit()
+    {
+        if (isLoading) return;
+
+        isLoading = true;
+        message = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            // Lấy thông tin tài khoản từ localStorage
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            Console.WriteLine($"localStorage 'account' value: '{accountJson}'");
+
+            if (string.IsNullOrWhiteSpace(accountJson))
+            {
+                message = "❌ Không tìm thấy thông tin tài khoản trong localStorage!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            var account = JsonSerializer.Deserialize<UserAccount>(accountJson);
+
+            // Kiểm tra dữ liệu
+            if (lichLamViec.LoaiCongViecID == 0)
+            {
+                message = "⚠ Vui lòng chọn loại công việc!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            if (lichLamViec.PhanLoai == 0)
+            {
+                message = "⚠ Vui lòng chọn phân loại!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(lichLamViec.NoiDungChiTiet))
+            {
+                message = "⚠ Vui lòng nhập nội dung chi tiết!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            // Chuyển đổi thời gian từ string sang DateTime
+            if (!TimeSpan.TryParse(thoiGianBatDau, out var startTimeSpan) || !TimeSpan.TryParse(thoiGianKetThuc, out var endTimeSpan))
+            {
+                message = "⚠ Thời gian không hợp lệ!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            // Gán DateTime dựa trên NgayTruc
+            lichLamViec.ThoiGianBatDau = lichLamViec.NgayTruc.Date.Add(startTimeSpan);
+            lichLamViec.ThoiGianKetThuc = lichLamViec.NgayTruc.Date.Add(endTimeSpan);
+
+            if (lichLamViec.ThoiGianBatDau >= lichLamViec.ThoiGianKetThuc)
+            {
+                message = "⚠ Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            if (!decimal.TryParse(account.PsnPrkID, out decimal psnPrkId))
+            {
+                message = "❌ ID tài khoản không hợp lệ!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            // Gán PsnPrkID từ tài khoản
+            lichLamViec.PsnPrkID = psnPrkId;
+
+            // Gọi API
+            var result = await LichLamViecService.CreateLichLamViecAsync(lichLamViec);
+            Console.WriteLine($"Raw API response: '{result}'");
+
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                message = "❌ Không nhận được phản hồi từ server!";
+                success = false;
+            }
+            else if (result.Contains("thành công", StringComparison.OrdinalIgnoreCase))
+            {
+                message = "✅ Tạo lịch làm việc thành công!";
+                success = true;
+                ResetForm();
+            }
+            else
+            {
+                message = $"❌ {result}";
+                success = false;
+            }
+
+            StateHasChanged();
+            await ShowMessageTemporarily();
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Lỗi khi tạo lịch làm việc: {ex.Message}";
+            success = false;
+            StateHasChanged();
+            await ShowMessageTemporarily();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void TroVe()
+    {
+        Navigation.NavigateTo("/home", true);
+    }
+
+    private void ResetForm()
+    {
+        lichLamViec = new LichLamViecDb
+            {
+                LoaiCongViecID = 0,
+                NgayTruc = DateTime.Now,
+                ThoiGianBatDau = DateTime.Now.Date.AddHours(8),
+                ThoiGianKetThuc = DateTime.Now.Date.AddHours(17),
+                PhanLoai = 0,
+                NoiDungChiTiet = string.Empty
+            };
+        thoiGianBatDau = "08:00";
+        thoiGianKetThuc = "17:00";
+    }
+
+    private async Task ShowMessageTemporarily()
+    {
+        if (!string.IsNullOrEmpty(message))
+        {
+            await Task.Delay(3000);
+            message = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/home");
+    }
+} *@

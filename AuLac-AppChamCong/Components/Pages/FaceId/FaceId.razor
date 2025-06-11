@@ -1,0 +1,217 @@
+﻿@page "/faceID"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Services
+@using Newtonsoft.Json
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject FaceIdServices FaceIdService
+
+<div class="face-registration-container">
+    <!-- Header với nút quay lại và tiêu đề trên cùng một hàng -->
+    <div class="header-container">
+        <button class="back-btn" @onclick="GoBack">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <h3 class="title">Đăng ký nhận diện khuôn mặt</h3>
+    </div>
+
+    <!-- Video webcam -->
+    <div class="video-container">
+        <video id="webcam" autoplay playsinline class="webcam-video"></video>
+        <canvas id="canvas" style="display: none;"></canvas>
+    </div>
+
+    <!-- Nút đăng ký và thông báo -->
+    <div class="action-container">
+        @if (IsRegistering)
+        {
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Đang xử lý...</span>
+            </div>
+            <p class="status-message">@RegisterMessage</p>
+        }
+        else
+        {
+            <button class="register-btn" @onclick="RegisterFace" disabled="@(IsRegistering || !IsWebcamStarted)">Đăng ký khuôn mặt</button>
+            @if (!string.IsNullOrEmpty(RegisterMessage))
+            {
+                <div class="alert @(RegisterMessage.Contains("thành công") ? "alert-success" : "alert-danger") status-message">
+                    @RegisterMessage
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private bool IsRegistering = false;
+    private string RegisterMessage = "";
+    private decimal CurrentUserId;
+    private IJSObjectReference? module;
+    private bool IsWebcamStarted = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Lấy thông tin tài khoản từ localStorage
+        try
+        {
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            Console.WriteLine($"[DEBUG] accountJson: {accountJson}");
+            if (string.IsNullOrEmpty(accountJson))
+            {
+                RegisterMessage = "Không tìm thấy dữ liệu tài khoản. Vui lòng đăng nhập!";
+                Console.WriteLine("[ERROR] Không tìm thấy dữ liệu tài khoản trong FaceID!");
+                StateHasChanged();
+                return;
+            }
+
+            var accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+            if (accountObj == null)
+            {
+                RegisterMessage = "Dữ liệu tài khoản không hợp lệ (null)!";
+                Console.WriteLine("[ERROR] accountObj là null sau khi deserialize!");
+                StateHasChanged();
+                return;
+            }
+
+            // Kiểm tra kiểu của PsnPrkID
+            if (string.IsNullOrEmpty(accountObj.PsnPrkID) || !decimal.TryParse(accountObj.PsnPrkID, out var parsedUserId) || parsedUserId <= 0)
+            {
+                RegisterMessage = "PsnPrkID không hợp lệ!";
+                Console.WriteLine($"[ERROR] PsnPrkID không hợp lệ: {accountObj.PsnPrkID}");
+                StateHasChanged();
+                return;
+            }
+
+            CurrentUserId = parsedUserId;
+            Console.WriteLine($"[INFO] Đã lấy PsnPrkID: {CurrentUserId}");
+        }
+        catch (Exception ex)
+        {
+            RegisterMessage = $"Lỗi khi lấy thông tin tài khoản: {ex.Message}";
+            Console.WriteLine($"[ERROR] Lỗi khi lấy thông tin tài khoản trong FaceID: {ex.Message}");
+            StateHasChanged();
+            return;
+        }
+
+        // Khởi tạo JavaScript module và webcam
+        try
+        {
+            module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/faceRecognition.js");
+            Console.WriteLine("[INFO] Đã tải module faceRecognition.js");
+            await module.InvokeVoidAsync("startWebcam");
+            IsWebcamStarted = true;
+            Console.WriteLine("[INFO] Đã khởi tạo webcam thành công");
+        }
+        catch (Exception ex)
+        {
+            RegisterMessage = $"Lỗi khi khởi tạo webcam: {ex.Message}";
+            Console.WriteLine($"[ERROR] Lỗi khi khởi tạo webcam trong FaceID: {ex.Message}");
+            IsWebcamStarted = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RegisterFace()
+    {
+        try
+        {
+            Console.WriteLine("[DEBUG] Bắt đầu RegisterFace...");
+            if (!IsWebcamStarted || module == null)
+            {
+                RegisterMessage = "Không thể khởi tạo webcam!";
+                Console.WriteLine("[ERROR] Webcam chưa được khởi tạo trong FaceID!");
+                StateHasChanged();
+                return;
+            }
+
+            // Kiểm tra xem tài khoản đã đăng ký khuôn mặt chưa
+            var existingFaceId = await FaceIdService.GetAllFaceId();
+            Console.WriteLine($"[DEBUG] Số lượng FaceId trong cơ sở dữ liệu: {existingFaceId?.Count ?? 0}");
+            if (existingFaceId.Any(f => f.PsnPrkID == CurrentUserId))
+            {
+                RegisterMessage = "Tài khoản này đã được đăng ký khuôn mặt!";
+                Console.WriteLine($"[INFO] Tài khoản PsnPrkID {CurrentUserId} đã được đăng ký khuôn mặt!");
+                StateHasChanged();
+                return;
+            }
+
+            IsRegistering = true;
+            RegisterMessage = "Đang chuẩn bị tự động chụp 20 hình ảnh...";
+            StateHasChanged();
+
+            await Task.Delay(3000);
+            RegisterMessage = "Đang tự động chụp 20 hình ảnh...";
+            StateHasChanged();
+
+            List<string> imageBase64List = new List<string>();
+
+            for (int i = 0; i < 20; i++)
+            {
+                try
+                {
+                    RegisterMessage = $"Đang chụp hình ảnh {i + 1}/20...";
+                    StateHasChanged();
+                    var imageBase64 = await module.InvokeAsync<string>("captureFrame");
+                    if (string.IsNullOrEmpty(imageBase64))
+                    {
+                        RegisterMessage = $"Không thể chụp khung hình tại lần {i + 1}!";
+                        Console.WriteLine($"[ERROR] Không thể chụp khung hình tại lần {i + 1}!");
+                        IsRegistering = false;
+                        StateHasChanged();
+                        return;
+                    }
+                    imageBase64List.Add(imageBase64);
+                    Console.WriteLine($"[INFO] Đã chụp hình ảnh {i + 1}/20");
+                    await Task.Delay(500);
+                }
+                catch (Exception ex)
+                {
+                    RegisterMessage = $"Lỗi khi chụp hình ảnh tại lần {i + 1}: {ex.Message}";
+                    Console.WriteLine($"[ERROR] Lỗi khi chụp hình ảnh {i + 1} trong FaceID: {ex.Message}");
+                    IsRegistering = false;
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            RegisterMessage = "Đang lưu hình ảnh và đăng ký...";
+            StateHasChanged();
+
+            string result = await FaceIdService.RegisterFace(CurrentUserId, imageBase64List);
+            RegisterMessage = result;
+            Console.WriteLine($"[INFO] Kết quả đăng ký cho PsnPrkID {CurrentUserId}: {result}");
+        }
+        catch (Exception ex)
+        {
+            RegisterMessage = $"Lỗi khi đăng ký: {ex.Message}";
+            Console.WriteLine($"[ERROR] Lỗi khi đăng ký khuôn mặt trong FaceID: {ex.Message}");
+        }
+        finally
+        {
+            IsRegistering = false;
+            StateHasChanged();
+            Console.WriteLine("[DEBUG] Đã kết thúc RegisterFace");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (IsWebcamStarted && module != null)
+        {
+            await module.InvokeVoidAsync("stopWebcam");
+            await module.DisposeAsync();
+        }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/home");
+    }
+
+    // Class giả định cho UserAccount
+    public class UserAccount
+    {
+        public string PsnPrkID { get; set; } // Giả định PsnPrkID là string trong JSON
+    }
+}

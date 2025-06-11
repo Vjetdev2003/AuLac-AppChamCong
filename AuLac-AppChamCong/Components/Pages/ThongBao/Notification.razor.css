@@ -1,0 +1,231 @@
+﻿/* Container */
+.container {
+    max-width: 100%; /* Đầy chiều rộng trên mobile */
+    padding: 0 15px; /* Đồng bộ padding với app */
+    margin: 0 auto;
+}
+
+.navbar {
+    border-radius: 10px; /* Bo góc giống app */
+    padding: 0.5rem;
+    background: #28A745; /* Xanh lá đậm cho navbar */
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15); /* Đồng bộ bóng với Header */
+    border: 2px solid #3498DB; /* Viền xanh dương */
+}
+
+/* Navbar elements */
+.navbar-brand {
+    color: #ffffff !important; /* Chữ trắng cho tiêu đề */
+    font-size: 16px; /* Đồng bộ font với app */
+    font-weight: bold;
+}
+
+.btn-link {
+    color: #3498DB !important; /* Xanh dương cho icon */
+    padding: 0;
+    transition: color 0.3s ease;
+}
+
+    .btn-link:hover {
+        color: #2980B9 !important; /* Xanh dương đậm khi hover */
+    }
+
+/* Spinner */
+.spinner-border {
+    color: #3498DB !important; /* Xanh dương cho spinner */
+}
+
+/* List group */
+.list-group {
+    margin-top: 15px; /* Tăng khoảng cách cho đồng bộ */
+}
+
+/* Item thông báo */
+.notification-item {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 10px !important; /* Bo góc giống app */
+    padding: 15px !important; /* Tăng padding cho thoải mái */
+    margin-bottom: 10px;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Bóng nhẹ giống history */
+}
+
+/* Thông báo chưa đọc */
+.notification-unread {
+    background-color: #ffffff;
+    border-left: 4px solid #3498DB; /* Viền xanh dương đậm hơn */
+}
+
+/* Thông báo đã đọc */
+.notification-read {
+    background-color: #F4F9FC; /* Nền xanh dương nhạt giống history */
+    opacity: 0.9;
+}
+
+/* Hiệu ứng hover */
+.notification-item:hover {
+    background-color: #D6EAF8; /* Xanh dương nhạt khi hover */
+}
+
+/* Avatar */
+.avatar-container {
+    position: relative;
+    width: 40px; /* Kích thước lớn hơn cho rõ ràng */
+    height: 40px;
+}
+
+.avatar-icon {
+    display: inline-block;
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+    text-align: center;
+    background-color: #28A745; /* Xanh lá đậm cho icon */
+    color: #ffffff;
+    border-radius: 50%;
+    font-size: 16px; /* Font lớn hơn cho icon */
+}
+
+/* Điểm đánh dấu chưa đọc */
+.unread-dot {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px; /* Lớn hơn một chút */
+    height: 10px;
+    background-color: #E74C3C; /* Đỏ giữ nguyên cho nổi bật */
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    animation: pulse 2s infinite ease-in-out;
+}
+
+/* Hiệu ứng pulse */
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.2);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Tiêu đề thông báo */
+.notification-title {
+    font-size: 16px; /* Đồng bộ với app */
+    font-weight: bold;
+    color: #333333; /* Màu chữ chính */
+    margin-bottom: 5px;
+    font-family: Arial, sans-serif; /* Đồng bộ font */
+}
+
+    .notification-title.text-muted {
+        font-weight: normal;
+        color: #6c757d;
+    }
+
+/* Nội dung thông báo */
+.notification-message {
+    font-size: 14px; /* Đồng bộ với app */
+    color: #495057;
+    margin-bottom: 0;
+    line-height: 1.4;
+    font-family: Arial, sans-serif;
+}
+
+/* Thời gian */
+.time-stamp {
+    font-size: 12px; /* Nhỏ hơn một chút */
+    color: #868e96;
+    font-family: Arial, sans-serif;
+}
+
+/* Responsive cho màn hình nhỏ */
+@media (max-width: 576px) {
+    .container {
+        padding: 0 10px; /* Giảm padding */
+    }
+
+    .navbar {
+        padding: 0.4rem;
+    }
+
+    .notification-item {
+        padding: 12px !important; /* Giảm padding */
+    }
+
+    .avatar-container {
+        width: 32px;
+        height: 32px;
+        margin-right: 10px !important;
+    }
+
+    .avatar-icon {
+        width: 32px;
+        height: 32px;
+        line-height: 32px;
+        font-size: 14px;
+    }
+
+    .unread-dot {
+        width: 8px;
+        height: 8px;
+        border: 1.5px solid #ffffff;
+    }
+
+    .notification-title {
+        font-size: 14px; /* Nhỏ hơn */
+    }
+
+    .notification-message {
+        font-size: 12px;
+    }
+
+    .time-stamp {
+        font-size: 10px;
+    }
+
+    .notification-item:hover {
+        background-color: inherit; /* Tắt hover trên mobile */
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+}
+
+/* Đặc biệt cho màn rất nhỏ (dưới 360px) */
+@media (max-width: 360px) {
+    .notification-item {
+        padding: 10px !important;
+    }
+
+    .avatar-container {
+        width: 28px;
+        height: 28px;
+    }
+
+    .avatar-icon {
+        width: 28px;
+        height: 28px;
+        line-height: 28px;
+        font-size: 12px;
+    }
+
+    .notification-title {
+        font-size: 13px;
+    }
+
+    .notification-message {
+        font-size: 11px;
+    }
+
+    .time-stamp {
+        font-size: 9px;
+    }
+}

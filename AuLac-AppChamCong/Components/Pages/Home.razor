@@ -1,0 +1,960 @@
+﻿@page "/home"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Models.ToaDo
+@using AuLac_AppChamCong.Models.ViewModels
+@using AuLac_AppChamCong.Services
+@using CommunityToolkit.Maui.Alerts
+@using CommunityToolkit.Maui.Core
+@using CommunityToolkit.Maui.Views
+@using Newtonsoft.Json
+@using System.Net.Sockets
+@using System.Net
+@using System.Globalization
+@using static AuLac_AppChamCong.Components.Pages.HistoryCheckin
+@inject NavigationManager Navigation
+@inject ChamCongServices chamCongService
+@inject NotificationServices _notificationService
+@inject IJSRuntime JSRuntime
+@inject HttpClient Http
+
+<div @onclick="HideSidebar">
+    <!-- Toast Notification -->
+    @if (!string.IsNullOrEmpty(toastMessage))
+    {
+        <div class="toast-notification" style="background-color: @toastColor;">
+            @toastMessage
+        </div>
+    }
+
+    <!-- Header -->
+    <div class="Header">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/3/33/Vanamo_Logo.png" alt="Logo" class="logo" @onclick="ToggleSidebar" @onclick:stopPropagation="true">
+        <div>
+            <h4 class="p_Name">@PsnName</h4>
+            <p>@PspTypeName</p>
+        </div>
+        <!-- Menu Bell Icon -->
+        <span class="menu-icon" @onclick="GoToNotification">
+            <i class="fas fa-bell @(hasNewNotification ? "notification-dot" : "")"></i>
+        </span>
+    </div>
+    @if (isSidebarVisible)
+    {
+        <div class="sidebar">
+            <div class="sidebar-content">
+                <button class="sidebar-link" @onclick="GoToProfile">
+                    <i class="fas fa-user"></i> Thông tin cá nhân
+                </button>
+                <button class="sidebar-link" @onclick="GoToHistory">
+                    <i class="fas fa-history"></i> Lịch sử chấm công
+                </button>
+                <button class="sidebar-link" @onclick="GotoHistoryForm">
+                    <i class="fas fa-file-alt"></i> Lịch sử công tác
+                </button>
+                <button class="sidebar-link" @onclick="GoToListLichNghi">
+                    <i class="fas fa-qrcode"></i> Lịch sử lịch nghỉ
+                </button>
+                <button class="sidebar-link" @onclick="GoToWorkSchedule">
+                    <i class="fas fa-briefcase"></i> Lịch làm việc
+                </button>
+                <button class="sidebar-link" @onclick="GoToFaceId">
+                    <i class="fas fa-file-alt"></i>Đăng ký khuôn mặt
+                </button>
+                <button class="sidebar-link" @onclick="Logout">
+                    <i class="fas fa-sign-out-alt"></i> Đăng xuất
+                </button>
+            </div>
+        </div>
+    }
+    <!-- Thẻ chấm công -->
+    <div class="time-card">
+        <p class="date">@ddate</p>
+        <p class="date">@dtime</p>
+        @{
+            int currentBuoi = DateTime.Now.Hour < 12 ? 1 : 2;
+        }
+        <div class="time-check">
+            <h1 class="current-time">@(lastCheckInTime != null ? lastCheckInTime.Value.ToString("HH:mm") : "--:--")</h1>
+            <h1 class="current-time">@(lastCheckOutTime != null ? lastCheckOutTime.Value.ToString("HH:mm") : "--:--")</h1>
+        </div>
+        <div class="time-buttons">
+            <button class="btn check-in" @onclick="CheckIn" disabled="@isCheckInDisabled">CHECK IN</button>
+            <button class="btn check-out" @onclick="CheckOut" disabled="@isCheckOutDisabled">CHECK OUT</button>
+          @*<button class="btn check-out" @onclick="CheckOut" disabled="@(!hasPendingCheckIn)">CHECK OUT</button> *@
+        </div>
+        <div class="time-details">
+            <div class="time-row">
+                <p><strong class="in">@(lastCheckInTime != null ? lastCheckInTime.Value.ToString("HH:mm") : "--:--")</strong></p>
+                <p>@(lastWorkDuration.HasValue ? $"{lastWorkDuration.Value.Hours}h {lastWorkDuration.Value.Minutes}p" : "--:--")</p>
+                <p><strong class="out">@(lastCheckOutTime != null ? lastCheckOutTime.Value.ToString("HH:mm") : "--:--")</strong></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lịch sử chấm công -->
+    <div class="history">
+        <h3>Tuần này (@GetCurrentWeekRange())</h3>
+
+        @if (history == null || !history.Any() || !history.Any(h => IsCurrentWeek(new DateTime(h.NamCC, h.ThangCC, h.NgayCC))))
+        {
+            <p class="empty">Không có lịch sử chấm công trong tuần này.</p>
+        }
+        else
+        {
+            <div class="history-list">
+                @foreach (var dayGroup in history
+               .Where(h => IsCurrentWeek(new DateTime(h.NamCC, h.ThangCC, h.NgayCC)))
+               .GroupBy(h => new DateTime(h.NamCC, h.ThangCC, h.NgayCC))
+               .Select(g => new
+               {
+                   Key = g.Key,
+                   BuoiGroups = g.SelectMany(h => h.Lines)
+               .GroupBy(l => l.Buoi)
+               .Select(bg => new
+               {
+                   Buoi = bg.Key,
+                   Lines = bg.OrderBy(l => l.GioBatDau).ToList()
+               })
+               .OrderBy(bg => bg.Buoi)
+               .ToList()
+               })
+               .OrderByDescending(g => g.Key))
+                {
+                    var ngayCham = dayGroup.Key;
+                    var buoiGroups = dayGroup.BuoiGroups;
+                    var totalTime = GetTotalTime(buoiGroups.SelectMany(bg => bg.Lines).ToList());
+                    var isToday = ngayCham.Date == DateTime.Now.Date;
+                    var dayStatus = GetDayStatus(ngayCham, buoiGroups.SelectMany(bg => bg.Lines).ToList());
+
+                    <div class="history-item @(isToday ? "highlight-today" : "") @dayStatus">
+                        <div class="history-header">
+                            <span class="day">@GetDayOfWeek(ngayCham)</span>
+                            <span class="total-time">Tổng: @totalTime</span>
+                        </div>
+                        @foreach (var buoiGroup in buoiGroups)
+                        {
+                            var buoiText = buoiGroup.Buoi == 1 ? "Sáng" : "Chiều";
+                            <div class="buoi-section">
+                                <h4 class="buoi-title">Buổi @buoiText</h4>
+                                <div class="time-table">
+                                    <div class="time-header">
+                                        <span class="label-in">VÀO</span>
+                                        <span class="label-out">RA</span>
+                                        <span class="label-duration">THỜI GIAN</span>
+                                        <span class="label-status">TRẠNG THÁI</span>
+                                    </div>
+                                    @foreach (var line in buoiGroup.Lines)
+                                    {
+                                        var gioBatDau = line.GioBatDau != TimeSpan.Zero
+                                        ? line.GioBatDau.ToString(@"hh\:mm")
+                                        : "--:--";
+                                        var gioKetThuc = line.GioKetThuc != TimeSpan.Zero
+                                        ? line.GioKetThuc.ToString(@"hh\:mm")
+                                        : "--:--";
+                                        var duration = GetDuration(line);
+                                        var statusDetails = GetStatusDetails(line);
+
+                                        <div @onclick="GoToHistory" class="time-row-his">
+                                            <span class="time-in">@gioBatDau</span>
+                                            <span class="time-out">@gioKetThuc</span>
+                                            <span class="time-duration">@duration</span>
+                                            <span class="status-icon">
+                                                @if (line.GioKetThuc != TimeSpan.Zero)
+                                                {
+                                                    @if (line.Status == 1)
+                                                    {
+                                                        <i class="fas fa-check-circle" style="color: green;" title="Đủ giờ @(statusDetails != "" ? $"({statusDetails})" : "")"></i>
+                                                    }
+                                                    else if (line.Status == 2)
+                                                    {
+                                                        <i class="fas fa-exclamation-circle" style="color: #dc2626;" title="Thiếu giờ @(statusDetails != "" ? $"({statusDetails})" : "")"></i>
+                                                    }
+                                                }
+                                            </span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Nút lên trên -->
+    <button id="scrollTopBtn" class="scroll-top" @onclick="ScrollToTop"><i class="fas fa-arrow-up"></i></button>
+
+    <!-- FloatingBar -->
+    <div class="floating-button-group">
+        <button class="btn" @onclick="GoToForm">
+            <i class="fas fa-file-alt"></i>
+        </button>
+        <button class="btn" @onclick="GoToHistory">
+            <i class="fas fa-history"></i>
+        </button>
+        <button class="btn" @onclick="GoToOnLeave">
+            <i class="fas fa-envelope"></i>
+        </button>
+    </div>
+</div>
+
+@code {
+    private Timer timer; // Biến lưu thời gian cho thông báo
+    private string ddate = DateTime.Now.ToString("dd-MM-yyyy");
+    private string dtime = DateTime.Now.ToString("hh:mm:ss tt");
+    private bool isCheckInDisabled = false;//Check trạng thái checkin
+    private bool isCheckOutDisabled = true;//Check trạng thái checkout
+    private Personnels userProfile;
+    private string PsnName = "";
+    private string PspTypeName = "";
+    private List<HistoryResponse> history = new();
+    private int currentPsnPrkID; // Lưu PsnPrkID của người dùng hiện tại
+
+    // Biến cho toast notification
+    private string toastMessage = "";
+    private string toastColor = "";
+    private async Task ShowToast(string message, string color, int durationMs = 3000)
+    {
+        toastMessage = message;
+        toastColor = color;
+        StateHasChanged();
+        await Task.Delay(durationMs);
+        toastMessage = "";
+        StateHasChanged();
+    }
+
+    // Biến cho trạng thái Check-In/Check-Out
+    private Dictionary<int, List<(DateTime CheckInTime, DateTime? CheckOutTime, TimeSpan? WorkDuration)>> checkInOutRecords = new()
+    {
+        { 1, new List<(DateTime, DateTime?, TimeSpan?)>() }, // Buổi sáng
+        { 2, new List<(DateTime, DateTime?, TimeSpan?)>() }  // Buổi chiều
+    };
+    private DateTime? lastCheckInTime = null;
+    private DateTime? lastCheckOutTime = null;
+    private TimeSpan? lastWorkDuration = null;
+    private bool hasPendingCheckIn = false; // Kiểm tra xem có Check-In chưa Check-Out không
+
+    protected override async Task OnInitializedAsync()    {
+        try
+        {
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+
+            if (string.IsNullOrEmpty(accountJson))
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+
+            Console.WriteLine($"[DEBUG] Dữ liệu account từ localStorage: {accountJson}");
+
+            var accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+            if (accountObj == null)
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+
+            PsnName = accountObj.PsnName ?? "Không có tên";
+            PspTypeName = accountObj.PsnTypeName ?? "Không có chức vụ";
+
+            if (!decimal.TryParse(accountObj.PsnPrkID, out decimal psnPrkID))
+            {
+                Console.WriteLine("[ERROR] PsnPrkID không hợp lệ!");
+                return;
+            }
+            currentPsnPrkID = (int)psnPrkID; // Lưu PsnPrkID để sử dụng cho thông báo
+
+            // Khôi phục trạng thái Check-In/Check-Out từ localStorage
+            foreach (int buoi in new[] { 1, 2 })
+            {
+                string recordsJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", $"checkInOutRecords_Buoi{buoi}");
+                if (!string.IsNullOrEmpty(recordsJson))
+                {
+                    checkInOutRecords[buoi] = JsonConvert.DeserializeObject<List<(DateTime, DateTime?, TimeSpan?)>>(recordsJson) ?? new();
+                }
+            }
+
+            // Cập nhật trạng thái hiển thị
+            UpdateDisplayState();
+
+            // Gọi API lấy lịch sử chấm công
+            history = await chamCongService.GetChamCongHistoryAsync(psnPrkID, DateTime.Now.Month, DateTime.Now.Year);
+            if (history == null || !history.Any())
+            {
+                Console.WriteLine("[WARNING] Không có dữ liệu lịch sử chấm công!");
+            }
+            else
+            {
+                Console.WriteLine($"[SUCCESS] Đã lấy {history.Count} bản ghi lịch sử.");
+            }
+
+            // Khởi tạo timer
+            timer = new Timer(UpdateTime, null, 0, 1000);
+            var notificationTimer = new Timer(CheckTime, null, 0, 60000);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Lỗi khi tải dữ liệu: {ex.Message}");
+        }
+    }
+
+    #region Scroll
+    private async Task ScrollToTop()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", @"
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        ");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                const btn = document.getElementById('scrollTopBtn');
+                btn.style.display = 'none';
+                window.addEventListener('scroll', () => {
+                    if (document.documentElement.scrollTop > 100) {
+                        btn.style.display = 'flex';
+                    } else {
+                        btn.style.display = 'none';
+                    }
+                });
+            ");
+        }
+    }
+    #endregion
+
+    #region SideBar
+    private bool isSidebarVisible = false;
+    private void ToggleSidebar() => isSidebarVisible = !isSidebarVisible;
+    private void HideSidebar() { if (isSidebarVisible) isSidebarVisible = false; }
+    #endregion
+
+    #region Điều hướng
+    private void GoToProfile() => Navigation.NavigateTo("/profile");
+    private void Logout() => Navigation.NavigateTo("/login");
+    private void GoToHistory() => Navigation.NavigateTo("/history");
+    private void GoToForm() => Navigation.NavigateTo("/form");
+    private void GoToFormXinNghi() => Navigation.NavigateTo("/addLichNghi");
+    private void GoToListLichNghi() => Navigation.NavigateTo("/dsLichNghi");
+    private void GotoHistoryForm() => Navigation.NavigateTo("/historyForm");
+    private void GoToNotification() => Navigation.NavigateTo("/notification");
+    private void GoToOnLeave() => Navigation.NavigateTo("/addLichNghi");
+    private void GoToWorkSchedule() => Navigation.NavigateTo("/lichLamViec");
+    private void GoToFaceId() => Navigation.NavigateTo("/faceid");
+    #endregion
+
+    #region Thông báo
+    private bool hasNewNotification = false;
+
+    private void UpdateTime(object state)
+    {
+        dtime = DateTime.Now.ToString("hh:mm:ss tt");
+        ddate = DateTime.Now.ToString("dd-MM-yyyy");
+
+        var now = DateTime.Now;
+        int currentBuoi = now.Hour < 12 ? 1 : 2;
+
+        // Reset trạng thái nếu sang ngày mới
+        if (checkInOutRecords[1].Any() && checkInOutRecords[1].First().CheckInTime.Date < now.Date)
+        {
+            checkInOutRecords[1].Clear();
+            checkInOutRecords[2].Clear();
+            hasPendingCheckIn = false;
+            lastCheckInTime = null;
+            lastCheckOutTime = null;
+            lastWorkDuration = null;
+            foreach (int buoi in new[] { 1, 2 })
+            {
+                _ = JSRuntime.InvokeVoidAsync("localStorage.setItem", $"checkInOutRecords_Buoi{buoi}", JsonConvert.SerializeObject(checkInOutRecords[buoi]));
+            }
+        }
+
+        // Cập nhật trạng thái hiển thị
+        UpdateDisplayState();
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void CheckTime(object state)
+    {
+        var now = DateTime.Now;
+        var hour = now.Hour;
+        var minute = now.Minute;
+        int currentBuoi = now.Hour < 12 ? 1 : 2;
+
+        // Kiểm tra các giờ thông báo hiện tại
+        if ((hour == 14 && minute == 50) || (hour == 17 && minute == 55) || (hour == 11 && minute == 25))
+        {
+            hasNewNotification = true;
+            InvokeAsync(StateHasChanged);
+        }
+        // Kiểm tra tự động Check-Out
+        if ((currentBuoi == 1 && hour == 12 && minute == 0) || // 12:00 cho buổi sáng
+            (currentBuoi == 2 && hour == 18 && minute == 0))   // 18:00 cho buổi chiều
+        {
+            var todayRecords = checkInOutRecords[currentBuoi].Where(r => r.CheckInTime.Date == now.Date).ToList();
+            var lastRecord = todayRecords.LastOrDefault(r => r.CheckOutTime == null);
+            if (lastRecord.CheckInTime != default)
+            {
+                // Có Check-In chưa Check-Out, tự động Check-Out
+                AutoCheckOut(lastRecord, currentBuoi, now);
+            }
+        }
+    }
+
+    //Tự động checkout nếu đến giờ rồi nhưng người dùng không checkout
+    private async void AutoCheckOut((DateTime CheckInTime, DateTime? CheckOutTime, TimeSpan? WorkDuration) lastRecord, int currentBuoi, DateTime currentTime)
+    {
+        try
+        {
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            if (string.IsNullOrEmpty(accountJson))
+            {
+                Console.WriteLine("[ERROR] Không tìm thấy dữ liệu tài khoản trong AutoCheckOut!");
+                return;
+            }
+
+            var accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+            if (accountObj == null || string.IsNullOrEmpty(accountObj.PsnPrkID))
+            {
+                Console.WriteLine("[ERROR] Dữ liệu tài khoản không hợp lệ trong AutoCheckOut!");
+                return;
+            }
+
+            var checkOutModel = new ChamCongLineModel
+                {
+                    UserWritePrkID = Decimal.Parse(accountObj.PsnPrkID),
+                    Buoi = currentBuoi,
+                    NgayCham = lastRecord.CheckInTime.Date,
+                    GioKetThuc = currentTime.TimeOfDay
+                };
+
+            var response = await chamCongService.CheckOutAsync(checkOutModel);
+            if (string.IsNullOrWhiteSpace(response) || !response.Contains("thành công", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"[WARNING] AutoCheckOut thất bại: {response}");
+                return;
+            }
+
+            // Cập nhật bản ghi Check-Out
+            var updatedRecord = (lastRecord.CheckInTime, currentTime, currentTime - lastRecord.CheckInTime);
+            int index = checkInOutRecords[currentBuoi].IndexOf(lastRecord);
+            checkInOutRecords[currentBuoi][index] = updatedRecord;
+            UpdateDisplayState();
+
+            // Lưu vào localStorage
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"checkInOutRecords_Buoi{currentBuoi}", JsonConvert.SerializeObject(checkInOutRecords[currentBuoi]));
+
+            // Tạo thông báo
+            var notification = new NotificationDb
+                {
+                    PsnPrkID = currentPsnPrkID,
+                    Title = "Tự Động Check-Out",
+                    Message = $"Bạn quên Check-Out! Hệ thống đã tự động Check-Out lúc {currentTime:HH:mm} ngày {currentTime:dd/MM/yyyy}.",
+                    CreatedDate = currentTime,
+                    IsRead = false
+                };
+            await _notificationService.CreateNotificationAsync(notification);
+
+            hasNewNotification = true;
+            await ShowToast("Bạn quên Check-Out! Đã tự động Check-Out.", "orange", 3000);
+
+            // Cập nhật lịch sử
+            history = await chamCongService.GetChamCongHistoryAsync(Decimal.Parse(accountObj.PsnPrkID), DateTime.Now.Month, DateTime.Now.Year);
+            InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Lỗi khi AutoCheckOut: {ex.Message}");
+        }
+    }
+
+    public void Dispose() => timer?.Dispose();
+    #endregion
+
+    #region QR chấm công
+    private async Task GoToScan()
+    {
+        await ShowQRScanner();
+    }
+
+    private async Task CheckIn()
+    {
+        int currentBuoi = DateTime.Now.Hour < 12 ? 1 : 2; 
+        DateTime currentTime = DateTime.Now;
+
+        // Kiểm tra thời gian Check-In muộn
+        bool isMorning = currentBuoi == 1;
+        bool isAfternoon = currentBuoi == 2;
+        bool isLate = false;
+        string lateMessage = "Check-In muộn giờ!";
+
+        if (isMorning && currentTime.Hour >= 8)
+        {
+            isLate = true;
+        }
+        if (isAfternoon && (currentTime.Hour > 13 || (currentTime.Hour == 13 && currentTime.Minute >= 30)))
+        {
+            isLate = true;
+        }
+
+        try
+        {
+            // Quét QR
+            await ShowQRScanner();
+
+            // Lấy thông tin tài khoản
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            if (string.IsNullOrEmpty(accountJson))
+            {
+                await ShowToast("Không tìm thấy dữ liệu tài khoản!", "red", 2000);
+                return;
+            }
+
+            UserAccount accountObj;
+            try
+            {
+                accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+                if (accountObj == null || string.IsNullOrEmpty(accountObj.PsnPrkID))
+                {
+                    await ShowToast("Dữ liệu tài khoản không hợp lệ!", "red", 2000);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                await ShowToast($"Lỗi khi đọc tài khoản: {ex.Message}", "red", 2000);
+                return;
+            }
+
+            var checkInModel = new ChamCongLineModel
+                {
+                    MngChamCongPrkID = 0,
+                    Buoi = currentBuoi,
+                    ChamCong = 1,
+                    UserWritePrkID = Decimal.Parse(accountObj.PsnPrkID),
+                    NgayCham = DateTime.Now,
+                    GioBatDau = DateTime.Now.TimeOfDay,
+                    ComputerIP = await GetLocalIPAddress(),
+                    ComputerName = DeviceInfo.Current.Name ?? "Unknown Device"
+                };
+
+            var checkInHeader = new ChamCongHeaderModel
+                {
+                    PsnPrkID = Decimal.Parse(accountObj.PsnPrkID),
+                    ThangCC = DateTime.Now.Month,
+                    NamCC = DateTime.Now.Year,
+                    NgayCC = DateTime.Now.Day
+                };
+
+            Console.WriteLine($"[DEBUG] Gửi dữ liệu Check-in: {JsonConvert.SerializeObject(checkInModel)}");
+
+            // Gọi API
+            var response = await chamCongService.CheckInAsync(checkInModel, checkInHeader);
+            if (response != "Check-In thành công!")
+            {
+                await ShowToast(response, "orange", 2000);
+                return;
+            }
+
+            // Thêm bản ghi Check-In mới (hỗ trợ nhiều lần)
+            checkInOutRecords[currentBuoi].Add((currentTime, null, null));
+            UpdateDisplayState();
+
+            // Lưu vào localStorage
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"checkInOutRecords_Buoi{currentBuoi}", JsonConvert.SerializeObject(checkInOutRecords[currentBuoi]));
+
+            // Tạo thông báo mới
+            var notification = new NotificationDb
+                {
+                    PsnPrkID = currentPsnPrkID,
+                    Title = isLate ? "Check-In Muộn Giờ" : "Check-In Thành Công",
+                    Message = isLate
+                        ? $"Bạn đã Check-In (lần {checkInOutRecords[currentBuoi].Count}) muộn lúc {currentTime:HH:mm} ngày {currentTime:dd/MM/yyyy}."
+                        : $"Bạn đã Check-In (lần {checkInOutRecords[currentBuoi].Count}) lúc {currentTime:HH:mm} ngày {currentTime:dd/MM/yyyy}.",
+                    CreatedDate = DateTime.Now,
+                    IsRead = false
+                };
+            await _notificationService.CreateNotificationAsync(notification);
+
+            // Cập nhật trạng thái thông báo
+            hasNewNotification = true;
+
+            // Hiển thị toast
+            if (isLate)
+            {
+                await ShowToast($"{lateMessage} (Lần {checkInOutRecords[currentBuoi].Count})", "red", 2000);
+            }
+            else
+            {
+                await ShowToast($"Check-In thành công! (Lần {checkInOutRecords[currentBuoi].Count})", "green", 2000);
+            }
+
+            // Cập nhật lịch sử chấm công
+            history = await chamCongService.GetChamCongHistoryAsync(Decimal.Parse(accountObj.PsnPrkID), DateTime.Now.Month, DateTime.Now.Year);
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await ShowToast($"Lỗi khi Check-In: {ex.Message}", "red", 2000);
+        }
+    }
+
+    private async Task CheckOut()
+    {
+        int currentBuoi = DateTime.Now.Hour < 12 ? 1 : 2;
+        var lastRecord = checkInOutRecords[currentBuoi].LastOrDefault(r => r.CheckOutTime == null);
+        if (lastRecord.CheckInTime == default)
+        {
+            await ShowToast("Bạn chưa Check-In!", "orange", 2000);
+            return;
+        }
+        DateTime currentTime = DateTime.Now;
+        bool isMorning = currentBuoi == 1;
+        bool isAfternoon = currentBuoi == 2;
+        bool isEarly = (isMorning && currentTime.Hour < 11) ||
+                       (isAfternoon && currentTime.Hour < 17);
+        string earlyMessage = "Check-Out sớm!";
+
+        try
+        {
+            await ShowQRScanner();
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            if (string.IsNullOrEmpty(accountJson))
+            {
+                await ShowToast("Dữ liệu tài khoản trống!", "red", 2000);
+                return;
+            }
+
+            var accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+            if (accountObj == null || string.IsNullOrEmpty(accountObj.PsnPrkID))
+            {
+                await ShowToast("Dữ liệu tài khoản không hợp lệ!", "red", 2000);
+                return;
+            }
+
+            var checkOutModel = new ChamCongLineModel
+                {
+                    UserWritePrkID = Decimal.Parse(accountObj.PsnPrkID),
+                    Buoi = currentBuoi,
+                    NgayCham = lastRecord.CheckInTime.Date,
+                    GioKetThuc = currentTime.TimeOfDay
+                };
+
+            Console.WriteLine($"[DEBUG] Dữ liệu checkOutModel trước khi gửi: {JsonConvert.SerializeObject(checkOutModel)}");
+
+            var response = await chamCongService.CheckOutAsync(checkOutModel);
+            if (string.IsNullOrWhiteSpace(response) || !response.Contains("thành công", StringComparison.OrdinalIgnoreCase))
+            {
+                await ShowToast(response, "orange", 2000);
+                return;
+            }
+
+            // Cập nhật bản ghi Check-Out
+            var updatedRecord = (lastRecord.CheckInTime, currentTime, currentTime - lastRecord.CheckInTime);
+            int index = checkInOutRecords[currentBuoi].IndexOf(lastRecord);
+            checkInOutRecords[currentBuoi][index] = updatedRecord;
+            UpdateDisplayState();
+
+            // Lưu vào localStorage
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"checkInOutRecords_Buoi{currentBuoi}", JsonConvert.SerializeObject(checkInOutRecords[currentBuoi]));
+
+            // Tạo thông báo
+            var notification = new NotificationDb
+                {
+                    PsnPrkID = currentPsnPrkID,
+                    Title = isEarly ? "Check-Out Sớm" : "Check-Out Thành Công",
+                    Message = $"Bạn đã Check-Out thành công vào lúc {currentTime:HH:mm} ngày {currentTime:dd/MM/yyyy}.",
+                    CreatedDate = DateTime.Now,
+                    IsRead = false
+                };
+            await _notificationService.CreateNotificationAsync(notification);
+
+            hasNewNotification = true;
+            // Cập nhật lịch sử
+            history = await chamCongService.GetChamCongHistoryAsync(Decimal.Parse(accountObj.PsnPrkID), DateTime.Now.Month, DateTime.Now.Year);
+
+            await ShowToast(isEarly ? earlyMessage : "Check-Out thành công!", isEarly ? "red" : "green", 2000);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Lỗi trong CheckOut: {ex.Message}");
+            Console.WriteLine($"[ERROR] StackTrace: {ex.StackTrace}");
+            await ShowToast($"Lỗi khi Check-Out: {ex.Message}", "red", 2000);
+        }
+    }
+
+    private void UpdateDisplayState()
+    {
+        int currentBuoi = DateTime.Now.Hour < 12 ? 1 : 2;
+        var todayRecords = checkInOutRecords[currentBuoi].Where(r => r.CheckInTime.Date == DateTime.Now.Date).ToList();
+        if (todayRecords.Any())
+        {
+            var lastRecord = todayRecords.Last();
+            lastCheckInTime = lastRecord.CheckInTime;
+            lastCheckOutTime = lastRecord.CheckOutTime;
+            lastWorkDuration = lastRecord.WorkDuration;
+
+            // Cập nhật trạng thái nút
+            isCheckInDisabled = lastRecord.CheckOutTime == null; // Có Check-In chưa Check-Out -> vô hiệu hóa Check-In
+            isCheckOutDisabled = lastRecord.CheckOutTime != null; // Đã Check-Out -> vô hiệu hóa Check-Out
+        }
+        else
+        {
+            lastCheckInTime = null;
+            lastCheckOutTime = null;
+            lastWorkDuration = null;
+
+            // Không có bản ghi nào hôm nay -> Check-In bật, Check-Out tắt
+            isCheckInDisabled = false;
+            isCheckOutDisabled = true;
+        }
+    }
+
+    private async Task<string> GetLocalIPAddress()
+    {
+        try
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    return ip.ToString();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Không thể lấy IP nội bộ: {ex.Message}");
+        }
+        return "Unknown IP";
+    }
+
+    private async Task<bool> RequestLocationPermission()
+    {
+        var status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+        if (status != PermissionStatus.Granted)
+        {
+            status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+        }
+        return status == PermissionStatus.Granted;
+    }
+
+    public async Task ShowQRScanner()
+    {
+        try
+        {
+            var result = await App.Current.MainPage.ShowPopupAsync(new CameraBarcode());
+            if (result != null)
+            {
+                bool hasPermission = await RequestLocationPermission();
+                if (!hasPermission)
+                {
+                    error = "Ứng dụng chưa được cấp quyền truy cập vị trí!";
+                    return;
+                }
+                currentLocation = await Geolocation.GetLastKnownLocationAsync();
+                if (currentLocation == null)
+                {
+                    var request = new GeolocationRequest(GeolocationAccuracy.Medium, TimeSpan.FromSeconds(10));
+                    currentLocation = await Geolocation.GetLocationAsync(request);
+                }
+                if (currentLocation == null)
+                {
+                    error = "Không thể lấy vị trí hiện tại!";
+                    return;
+                }
+                var location = new ToaDo
+                    {
+                        Latitude = currentLocation.Latitude,
+                        Longitude = currentLocation.Longitude
+                    };
+                var locationCheck = await chamCongService.CheckLocationAsync(location);
+                CloseCamera();
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Lỗi khi mở QR Scanner: {ex.Message}");
+        }
+    }
+
+    private Location currentLocation;
+    private ToaDo toaDo = new();
+    private string error = "";
+    private void CloseCamera() { StateHasChanged(); }
+    #endregion
+
+    #region Lịch sử Chấm công
+    // Hàm chuyển đổi string (hh:mm:ss) thành TimeSpan
+    private TimeSpan ParseTimeSpan(string timeString)
+    {
+        if (string.IsNullOrEmpty(timeString) || timeString == "00:00:00")
+        {
+            return TimeSpan.Zero;
+        }
+
+        try
+        {
+            // Xử lý định dạng có phần microsecond (ví dụ: "09:44:50.0208262")
+            if (timeString.Contains("."))
+            {
+                timeString = timeString.Split('.')[0]; // Lấy phần trước dấu chấm
+            }
+
+            return TimeSpan.Parse(timeString);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Lỗi khi parse TimeSpan từ '{timeString}': {ex.Message}");
+            return TimeSpan.Zero;
+        }
+    }
+
+    private string GetDayOfWeek(DateTime date) => date.ToString("dddd, dd/MM", new CultureInfo("vi-VN"));
+
+    private string GetCurrentWeekRange()
+    {
+        DateTime now = DateTime.Now;
+        DateTime startOfWeek = now.AddDays(-(int)now.DayOfWeek + (int)DayOfWeek.Monday);
+        DateTime endOfWeek = startOfWeek.AddDays(6);
+        return $"{startOfWeek:dd/MM/yyyy} - {endOfWeek:dd/MM/yyyy}";
+    }
+
+    private bool IsCurrentWeek(DateTime date)
+    {
+        DateTime today = DateTime.Now;
+        DateTime startOfWeek = today.AddDays(-(int)today.DayOfWeek + 1);
+        DateTime endOfWeek = startOfWeek.AddDays(6);
+        return date.Date >= startOfWeek.Date && date.Date <= endOfWeek.Date;
+    }
+
+    private string GetTotalTime(List<ChamCongLineModel> lines)
+    {
+        TimeSpan total = TimeSpan.Zero;
+        foreach (var line in lines)
+        {
+            var gioBatDau = line.GioBatDau;
+            var gioKetThuc = line.GioKetThuc;
+
+            if (gioKetThuc != TimeSpan.Zero && gioBatDau != TimeSpan.Zero && gioKetThuc > gioBatDau)
+            {
+                try
+                {
+                    TimeSpan duration = gioKetThuc - gioBatDau;
+                    if (duration.TotalMinutes > 0 && duration.TotalHours < 24)
+                    {
+                        total += duration;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] Lỗi khi tính thời gian làm việc: {ex.Message}");
+                }
+            }
+        }
+        return total == TimeSpan.Zero ? "0h 0p" : $"{(int)total.TotalHours}h {total.Minutes}p";
+    }
+
+    private string GetDuration(ChamCongLineModel line)
+    {
+        var gioBatDau = line.GioBatDau;
+        var gioKetThuc = line.GioKetThuc;
+
+        // Nếu GioBatDau và GioKetThuc đều là TimeSpan hợp lệ
+        if (gioKetThuc != TimeSpan.Zero && gioBatDau != TimeSpan.Zero && gioKetThuc > gioBatDau)
+        {
+            TimeSpan duration = gioKetThuc - gioBatDau;
+            return $"{(int)duration.TotalHours}h {duration.Minutes}p"; 
+        }
+        return "--:--";
+    }
+
+    private string GetStatusDetails(ChamCongLineModel line)
+    {
+        var gioBatDau = line.GioBatDau;
+        var gioKetThuc = line.GioKetThuc;
+
+        if (gioBatDau == TimeSpan.Zero || gioKetThuc == TimeSpan.Zero) return "";
+
+        string details = "";
+        var isMorning = line.Buoi == 1;
+        var isAfternoon = line.Buoi == 2;
+
+        // Kiểm tra Check-In muộn
+        if (isMorning && gioBatDau.Hours >= 8)
+        {
+            details += "Muộn";
+        }
+        else if (isAfternoon && (gioBatDau.Hours > 13 || (gioBatDau.Hours == 13 && gioBatDau.Minutes >= 30)))
+        {
+            details += "Muộn";
+        }
+
+        // Kiểm tra Check-Out sớm
+        if (isMorning && gioKetThuc.Hours < 12)
+        {
+            details += (details != "" ? ", " : "") + "Sớm";
+        }
+        else if (isAfternoon && (gioKetThuc.Hours < 17 || (gioKetThuc.Hours == 17 && gioKetThuc.Minutes < 30)))
+        {
+            details += (details != "" ? ", " : "") + "Sớm";
+        }
+
+        return details;
+    }
+
+    private string GetDayStatus(DateTime date, List<ChamCongLineModel> lines)
+    {
+        if (!lines.Any())
+        {
+            // Nếu không có bản ghi chấm công, kiểm tra xem ngày có phải là ngày nghỉ (thứ 7, chủ nhật) không
+            if (date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday)
+            {
+                return "off-day";
+            }
+            return "";
+        }
+
+        bool hasEnoughTime = false;
+        bool hasLackTime = false;
+
+        foreach (var line in lines)
+        {
+            var gioKetThuc = line.GioKetThuc;
+            if (gioKetThuc != TimeSpan.Zero)
+            {
+                if (line.Status == 1)
+                {
+                    hasEnoughTime = true;
+                }
+                else if (line.Status == 2)
+                {
+                    hasLackTime = true;
+                }
+            }
+        }
+
+        if (hasEnoughTime && !hasLackTime)
+        {
+            return "enough-time"; // Chỉ có bản ghi đủ giờ
+        }
+        else if (hasLackTime)
+        {
+            return "lack-time"; // Có ít nhất một bản ghi thiếu giờ
+        }
+
+        return "";
+    }
+    #endregion
+}

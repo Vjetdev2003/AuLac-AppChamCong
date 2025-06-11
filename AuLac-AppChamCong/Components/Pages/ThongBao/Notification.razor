@@ -1,0 +1,169 @@
+﻿@page "/notification"
+@using System.Text.Json
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Services
+@inject NotificationServices _notificationService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<div class="container my-3">
+    <nav class="navbar navbar-light bg-light shadow-sm mb-3">
+        <div class="container-fluid">
+            <button class="btn btn-link text-dark p-0" @onclick="GoBack">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <h3 class="navbar-brand text-primary m-0 flex-grow-1 text-center fw-bold">Thông Báo</h3>
+            <button class="btn btn-link text-dark p-0">
+                <i class="fas fa-ellipsis-v"></i>
+            </button>
+        </div>
+    </nav>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-3">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Đang tải...</span>
+            </div>
+            <p class="mt-1 text-muted">Đang tải...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger py-2" role="alert">
+            @errorMessage
+        </div>
+    }
+    else if (notifications == null || !notifications.Any())
+    {
+        <div class="alert alert-info text-center py-2" role="alert">
+            Không có thông báo nào.
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var notification in notifications)
+            {
+                <div class="list-group-item notification-item @(notification.IsRead ? "notification-read" : "notification-unread")"
+                     @onclick="() => MarkAsRead(notification.NotificationID)">
+                    <div class="d-flex align-items-center">
+                        <div class="avatar-container me-2">
+                            <span class="avatar-icon">
+                                <i class="fas fa-bell"></i>
+                            </span>
+                            @if (!notification.IsRead)
+                            {
+                                <span class="unread-dot"></span>
+                            }
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap">
+                                <h5 class="notification-title @(notification.IsRead ? "text-muted" : "")">
+                                    @notification.Title
+                                </h5>
+                                <small class="text-muted time-stamp">@FormatTime(notification.CreatedDate)</small>
+                            </div>
+                            <p class="notification-message">@notification.Message</p>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<NotificationDb> notifications = new List<NotificationDb>();
+    private bool isLoading = true;
+    private string errorMessage = string.Empty;
+    private int currentPsnPrkID;
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/home");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNotifications();
+    }
+
+    private async Task LoadNotifications()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+
+            // Lấy thông tin tài khoản từ localStorage
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            if (string.IsNullOrWhiteSpace(accountJson))
+            {
+                errorMessage = "Không tìm thấy thông tin tài khoản!";
+                return;
+            }
+
+            var account = JsonSerializer.Deserialize<UserAccount>(accountJson);
+            if (account == null || !int.TryParse(account.PsnPrkID.ToString(), out currentPsnPrkID))
+            {
+                errorMessage = "ID nhân viên không hợp lệ!";
+                return;
+            }
+
+            notifications = await _notificationService.GetNotificationByPsnPrkID(currentPsnPrkID);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Lỗi khi tải thông báo: {ex.Message}";
+            Console.WriteLine($"Error in LoadNotifications: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task MarkAsRead(int notificationID)
+    {
+        try
+        {
+            var success = await _notificationService.MarkAsReadAsync(notificationID);
+            if (success)
+            {
+                var notification = notifications.FirstOrDefault(n => n.NotificationID == notificationID);
+                if (notification != null) 
+                {
+                    notification.IsRead = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Lỗi khi đánh dấu đã đọc: {ex.Message}";
+            Console.WriteLine($"Error in MarkAsRead: {ex.Message}");
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private string FormatTime(DateTime createdDate)
+    {
+        var timeSpan = DateTime.Now - createdDate;
+        if (timeSpan.TotalHours < 1)
+        {
+            return $"{(int)timeSpan.TotalMinutes} phút trước";
+        }
+        else if (timeSpan.TotalDays < 1)
+        {
+            return $"{(int)timeSpan.TotalHours} giờ trước";
+        }
+        else
+        {
+            return $"{(int)timeSpan.TotalDays} ngày trước";
+        }
+    }
+}

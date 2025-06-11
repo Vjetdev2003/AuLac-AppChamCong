@@ -1,0 +1,261 @@
+﻿@page "/form"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Models.DonCongTac
+@using AuLac_AppChamCong.Services
+@using System.Text.Json
+@inject NavigationManager Navigation
+@inject DonCongTacServices DonCongTacService
+@inject IJSRuntime JSRuntime
+
+<div class="container">
+    <div class="header">
+        <button class="back-btn" @onclick="TroVe">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <h2 class="title">Tạo Đơn Công Tác</h2>
+        <div class="icon-placeholder"></div>
+    </div>
+
+    <div class="form-container">
+        <div class="form-group">
+            <label for="ngayCongTac">Ngày Công Tác:</label>
+            <div class="input-container">
+                <input type="date" id="ngayCongTacDate" @bind="NgayCongTac" class="input-field" disabled="@isLoading" />
+            </div>
+        </div>
+        <div class="row mb-3 gx-2">
+            <div class="col-6">
+                <div class="form-group">
+                    <label for="thoiGianBatDau" class="form-label fw-semibold">Thời Gian Bắt Đầu</label>
+                    <input type="time" class="form-control form-control-lg" id="thoiGianBatDau"
+                           @bind="ThoiGianBatDau" @bind:event="oninput" disabled="@isLoading" />
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="form-group">
+                    <label for="thoiGianKetThuc" class="form-label fw-semibold">Thời Gian Kết Thúc</label>
+                    <input type="time" class="form-control form-control-lg" id="thoiGianKetThuc"
+                           @bind="ThoiGianKetThuc" @bind:event="oninput" disabled="@isLoading" />
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group position-relative">
+            <label for="noiCongTac">Nơi Công Tác:</label>
+            <div class="input-group">
+                <input id="noiCongTac" class="input-field" placeholder="Nhập tên bệnh viện để tìm kiếm"
+                       @bind="hospitalSearchTerm" @bind:event="oninput" @onfocus="ShowSuggestions" @onblur="HideSuggestionsAfterDelay" disabled="@isLoading" />
+            </div>
+            @if (showSuggestions && filteredHospitals.Any())
+            {
+                <ul class="list-group position-absolute w-100" style="z-index: 1000; max-height: 200px; overflow-y: auto;">
+                    @foreach (var hospital in filteredHospitals)
+                    {
+                        <li class="list-group-item list-group-item-action"
+                            @onclick="() => SelectHospital(hospital)"
+                            @onmouseover="() => hospitalSearchTerm = hospital.HospitalName">
+                            @hospital.HospitalName
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="form-group">
+            <label for="lyDo">Lý Do:</label>
+            <textarea id="lyDo" @bind="LyDo" class="input-field" rows="4" placeholder="Nhập lý do công tác..." disabled="@isLoading"></textarea>
+        </div>
+
+        <div class="button-group">
+            <button class="btn submit-btn" @onclick="XacNhan" disabled="@isLoading">
+                @(isLoading ? "Đang gửi..." : "Xác Nhận")
+            </button>
+        </div>
+    </div>
+
+    @if (showMessage && !string.IsNullOrEmpty(ThongBao))
+    {
+        <div class="overlay"></div>
+        <div class="message message-fixed message-transition">@ThongBao</div>
+    }
+</div>
+
+@code {
+    private DateTime NgayCongTac = DateTime.Today;
+    private string LyDo = "";
+    private string ThongBao = "";
+    private string NoiCongTac = "";
+    private bool isLoading = false;
+    private bool showMessage = false;
+    private DateTime ThoiGianBatDau = DateTime.Now;
+    private DateTime ThoiGianKetThuc = DateTime.Now;
+    private List<HospitalDb> hospitals = new();
+    private List<HospitalDb> filteredHospitals = new();
+    private HospitalDb selectedHospital;
+    private string hospitalSearchTerm = string.Empty;
+    private bool showSuggestions = false;
+    private int? hospitalId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            isLoading = true;
+            hospitals = await DonCongTacService.GetAllHospitalAsync();
+            filteredHospitals = hospitals;
+        }
+        catch (Exception ex)
+        {
+            ThongBao = $"❌ Lỗi khi tải danh sách bệnh viện: {ex.Message}";
+            await ShowMessageTemporarily();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task XacNhan()
+    {
+        if (isLoading) return;
+        isLoading = true;
+        ThongBao = "";
+
+        try
+        {
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            var account = JsonSerializer.Deserialize<UserAccount>(accountJson);
+
+            if (string.IsNullOrWhiteSpace(LyDo))
+            {
+                ThongBao = "⚠ Vui lòng nhập lý do công tác!";
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(NoiCongTac))
+            {
+                ThongBao = "⚠ Vui lòng nhập nơi công tác!";
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            if (!hospitalId.HasValue)
+            {
+                ThongBao = "⚠ Vui lòng chọn một bệnh viện từ danh sách gợi ý!";
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            var donCongTac = new DonCongTac
+                {
+                    PsnPrkID = int.Parse(account.PsnPrkID),
+                    NgayCongTac = NgayCongTac,
+                    ThoiGianBatDau = CombineDateAndTime(NgayCongTac, ThoiGianBatDau),
+                    ThoiGianKetThuc = CombineDateAndTime(NgayCongTac, ThoiGianKetThuc),
+                    NoiCongTac = NoiCongTac,
+                    LyDo = LyDo,
+                    Status = 0,
+                    HospitalId = hospitalId // Thêm HospitalId vào DonCongTac
+                };
+
+            var result = await DonCongTacService.TaoDonCongTacAsync(donCongTac);
+            var response = JsonSerializer.Deserialize<ApiResponse>(result, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (response.Success)
+            {
+                ThongBao = $"✔ {response.Message}";
+                NoiCongTac = "";
+                LyDo = "";
+                hospitalSearchTerm = "";
+                hospitalId = null;
+                selectedHospital = null;
+                filteredHospitals = hospitals;
+                await ShowMessageTemporarily();
+            }
+            else
+            {
+                ThongBao = $"❌ {response.Message}";
+                await ShowMessageTemporarily();
+            }
+        }
+        catch (Exception ex)
+        {
+            ThongBao = $"❌ Lỗi khi gửi đơn công tác: {ex.Message}";
+            await ShowMessageTemporarily();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private DateTime CombineDateAndTime(DateTime date, DateTime time)
+    {
+        return new DateTime(date.Year, date.Month, date.Day, time.Hour, time.Minute, time.Second);
+    }
+
+    private void ShowSuggestions()
+    {
+        showSuggestions = true;
+        FilterHospitals();
+        StateHasChanged();
+    }
+
+    private async Task HideSuggestionsAfterDelay()
+    {
+        await Task.Delay(200);
+        showSuggestions = false;
+        StateHasChanged();
+    }
+
+    private void FilterHospitals()
+    {
+        if (string.IsNullOrWhiteSpace(hospitalSearchTerm))
+        {
+            filteredHospitals = hospitals;
+        }
+        else
+        {
+            filteredHospitals = hospitals
+                .Where(h => h.HospitalName.Contains(hospitalSearchTerm, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        showSuggestions = true;
+        StateHasChanged();
+    }
+
+    private void SelectHospital(HospitalDb hospital)
+    {
+        selectedHospital = hospital;
+        hospitalId = hospital.HospitalId;
+        hospitalSearchTerm = hospital.HospitalName;
+        NoiCongTac = hospital.HospitalName;
+        showSuggestions = false;
+        StateHasChanged();
+    }
+
+    private async Task ShowMessageTemporarily()
+    {
+        showMessage = true;
+        StateHasChanged();
+        await Task.Delay(3000);
+        showMessage = false;
+        ThongBao = "";
+        StateHasChanged();
+    }
+
+    private void TroVe()
+    {
+        Navigation.NavigateTo("/home", true);
+    }
+
+    private class ApiResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+
+    }
+}

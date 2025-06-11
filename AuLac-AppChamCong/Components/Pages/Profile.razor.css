@@ -1,0 +1,257 @@
+﻿/* Container chính */
+.profile-container {
+    max-width: 900px;
+    margin: 20px auto;
+    padding: 30px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border-radius: 15px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+/* Tiêu đề trang */
+.profile-title {
+    display: flex;
+    align-items: center;
+    gap: 15px; /* Khoảng cách giữa nút back và chữ */
+    margin-bottom: 20px;
+}
+
+/* Nút quay lại */
+.back-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 15px;
+    font-size: 16px;
+    color: #000;
+    background: none;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: color 0.3s ease, background-color 0.3s ease;
+}
+
+    .back-btn i {
+        font-size: 18px;
+    }
+
+/* Header */
+.profile-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 30px;
+    border-bottom: 2px solid #e0e0e0;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.profile-image {
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.profile-img {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 4px solid #007bff;
+    box-shadow: 0 4px 10px rgba(0, 123, 255, 0.3);
+    transition: transform 0.3s ease;
+}
+
+    .profile-img:hover {
+        transform: scale(1.05);
+    }
+
+.profile-info {
+    text-align: center;
+}
+
+.profile-name {
+    font-size: 28px;
+    font-weight: bold;
+    color: #333;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.profile-position {
+    font-size: 16px;
+    color: #777;
+    margin-top: 5px;
+}
+
+/* Thông tin chi tiết */
+.profile-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.profile-detail-item {
+    display: flex;
+    align-items: center;
+    background: #fff;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+    .profile-detail-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+
+.detail-label {
+    font-weight: bold;
+    color: #007bff;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 120px;
+}
+
+    .detail-label i {
+        font-size: 18px;
+        color: #007bff;
+    }
+
+.profile-detail {
+    font-size: 16px;
+    color: #555;
+    margin: 0;
+    flex: 1;
+}
+
+/* Nút hành động */
+.profile-actions {
+    display: flex;
+    justify-content: center; /* Căn giữa */
+    padding: 0 0 20px 0; /* Khoảng cách bên dưới */
+}
+
+.btn {
+    padding: 12px 25px;
+    font-size: 16px;
+    border: none;
+    border-radius: 25px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.logout-btn {
+    background: linear-gradient(135deg, #dc3545, #c82333);
+    color: #fff;
+    width: 15vw; /* 1/5 chiều rộng màn hình */
+    max-width: 150px;
+}
+
+    .logout-btn:hover {
+        background: linear-gradient(135deg, #c82333, #a71d2a);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(220, 53, 69, 0.3);
+    }
+
+/* Responsive */
+@@media (max-width: 768px) {
+    .profile-container {
+        padding: 20px;
+    }
+
+    .profile-header {
+        margin-bottom: 30px;
+        padding-bottom: 20px;
+    }
+
+    .profile-img {
+        width: 100px;
+        height: 100px;
+    }
+
+    .profile-name {
+        font-size: 24px;
+    }
+
+    .profile-position {
+        font-size: 14px;
+    }
+
+    .profile-details {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .profile-detail-item {
+        padding: 10px;
+    }
+
+    .profile-actions {
+        justify-content: center; /* Căn giữa trên tablet */
+    }
+
+    .logout-btn {
+        width: 30vw; /* Tăng tỷ lệ trên tablet */
+        max-width: 150px;
+    }
+}
+
+@@media (max-width: 480px) {
+    .profile-container {
+        padding: 15px;
+    }
+
+    .profile-img {
+        width: 80px;
+        height: 80px;
+    }
+
+    .profile-name {
+        font-size: 20px;
+    }
+
+    .profile-position {
+        font-size: 12px;
+    }
+
+    .profile-detail-item {
+        padding: 8px;
+    }
+
+    .detail-label, .profile-detail {
+        font-size: 14px;
+    }
+
+    .profile-actions {
+        justify-content: center; /* Căn giữa trên mobile */
+    }
+
+    .logout-btn {
+        width: 40vw; /* Tăng tỷ lệ trên mobile */
+        max-width: 120px;
+        padding: 10px 15px;
+        font-size: 14px;
+    }
+}
+
+/* Animation */
+@@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

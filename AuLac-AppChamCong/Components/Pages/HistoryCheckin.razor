@@ -1,0 +1,710 @@
+﻿@page "/history"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Models.ViewModels
+@using Newtonsoft.Json
+@using System.Globalization
+@using AuLac_AppChamCong.Services
+@inject NavigationManager Navigation
+@inject ChamCongServices ChamCongService
+@inject LichNghiServices LichNghiService
+@inject IJSRuntime JSRuntime
+
+<div class="history-container">
+    @if (isLoading)
+    {
+        <div class="text-center py-3">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Đang tải...</span>
+            </div>
+            <p class="mt-1 text-muted">Đang tải...</p>
+        </div>
+    }
+
+    <div class="Header">
+        <span class="back-icon" @onclick="GoBack"><i class="fas fa-arrow-left"></i></span>
+        <h3>Lịch sử chấm công</h3>
+    </div>
+
+    <div class="month-selector">
+        <select id="month" @bind="selectedMonthInput" class="month-input">
+            @for (int month = 1; month <= 12; month++)
+            {
+                <option value="@month">Tháng @month</option>
+            }
+        </select>
+
+        <select id="year" @bind="selectedYearInput" class="year-input">
+            @for (int year = DateTime.Now.Year; year >= 2024; year--)
+            {
+                <option value="@year">@year</option>
+            }
+        </select>
+        <button @onclick="ShowStatistics" class="stats-button"><i class="fas fa-chart-bar"></i></button>
+    </div>
+
+    <!-- Modal thống kê -->
+    @if (showStatisticsModal)
+    {
+        <div class="statistics-modal" @onclick="HideStatisticsModal">
+            <div class="modal-content" @onclick:stopPropagation>
+                <h3>Thống kê tháng @GetMonthInVietnamese(selectedMonth)</h3>
+                <canvas id="statsChart" style="max-height: 200px; margin-bottom: 20px;"></canvas>
+                <p><strong>Số ngày đã làm:</strong> @attendedDays</p>
+                <p><strong>Số ngày làm đủ giờ:</strong> @daysWithEnoughTime</p>
+                <p><strong>Số ngày làm thiếu giờ:</strong> @daysWithLackTime</p>
+                <p><strong>Số ngày đi muộn:</strong> @daysLate</p>
+                <p><strong>Tổng số giờ làm:</strong> @totalHoursInMonth</p>
+                <button @onclick="HideStatisticsModal" class="close-btn">Đóng</button>
+            </div>
+        </div>
+    }
+
+    <div class="history">
+        <h3>Lịch sử @GetMonthInVietnamese(selectedMonth)</h3>
+        <p><strong>Số ngày đã làm:</strong> @attendedDays</p>
+        <p><strong>Tổng số giờ làm:</strong> @totalHoursInMonth</p>
+        @if (daysInMonth.Count > 0)
+        {
+            <div class="calendar-grid">
+                @foreach (var day in daysInMonth)
+                {
+                    var dayDate = DateTime.ParseExact($"{selectedMonth}-{day:00}", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+                    var isLeaveDay = leaveRequests.Any(lr => lr.Status == 1
+                    && lr.ThoiGianBatDau.HasValue && lr.ThoiGianKetThuc.HasValue
+                    && lr.ThoiGianBatDau.Value.Date <= dayDate.Date
+                    && lr.ThoiGianKetThuc.Value.Date >= dayDate.Date);
+
+                    var isHoliday = holidays.Any(h => h.HolidayDate.Date == dayDate.Date);
+
+                    var dayClass = isHoliday ? "holiday" : (isLeaveDay ? "leave-day" : (IsAttendanceDay(day) ? "attended" : "not-attended"));
+
+                    <div class="day-item @dayClass @(selectedDay == day ? "selected" : "")"
+                         @onclick="() => ShowDetails(day)">
+                        <div class="day-date">@day</div>
+                        @*Hiển thị tên ngày nghỉ ra lịch*@
+                        @*
+                        @if (isHoliday)
+                        {
+                            <div class="holiday-label">
+                                @(holidays.First(h => h.HolidayDate.Date == dayDate.Date).HolidayName)
+                            </div>
+                        }
+                        *@
+                    </div>
+                }
+                @*
+                @foreach (var day in daysInMonth)
+                {
+                    <div class="day-item @(IsAttendanceDay(day) ? "attended" : "not-attended") @(selectedDay == day ? "selected" : "")"
+                         @onclick="() => ShowDetails(day)">
+                        <div class="day-date">@day</div>
+                    </div>
+                }
+                *@
+                @*
+                @foreach (var day in daysInMonth)
+                {
+                    var dayStatus = GetDayStatus(day);
+                    <div class="day-item @(dayStatus == "enough-time" ? "enough-time" : dayStatus == "lack-time" ? "lack-time" : "not-attended") @(selectedDay == day ? "selected" : "")"
+                         @onclick="() => ShowDetails(day)">
+                        <div class="day-date">@day</div>
+                    </div>
+                }
+                *@
+            </div>
+        }
+        else
+        {
+            <p>Không có dữ liệu chấm công cho tháng này.</p>
+        }
+    </div>
+    @if (selectedDay.HasValue)
+    {
+        <div class="day-details-container">
+            <h4 class="day-details-header">Chi tiết ngày @selectedDay.Value, @GetDayOfWeek(selectedMonth, selectedDay.Value)</h4>
+
+            @{
+                var selectedDate = DateTime.ParseExact($"{selectedMonth}-{selectedDay:00}", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var leaveForDay = leaveRequests.FirstOrDefault(lr => lr.Status == 1
+                && lr.ThoiGianBatDau.HasValue && lr.ThoiGianKetThuc.HasValue
+                && lr.ThoiGianBatDau.Value.Date <= selectedDate.Date
+                && lr.ThoiGianKetThuc.Value.Date >= selectedDate.Date);
+                var holidayForDay = holidays.FirstOrDefault(h => h.HolidayDate.Date == selectedDate.Date);
+            }
+
+            @if (holidayForDay != null)
+            {
+                <div class="day-details holiday-details">
+                    <h5 class="mb-1">@holidayForDay.HolidayName</h5>
+                    <p class="mb-1">
+                        <span class="time-label">Ngày:</span>
+                        <span class="time-value">@holidayForDay.HolidayDate.ToString("dd/MM/yyyy")</span>
+                    </p>
+                    <p class="mb-1">
+                        <span class="time-label">Mô tả:</span>
+                        <span class="time-value">@holidayForDay.Description</span>
+                    </p>
+                </div>
+            }
+            else if (leaveForDay != null)
+            {
+                <div class="day-details leave-details">
+                    <h5 class="mb-1">@leaveForDay.LoaiNghiName - @leaveForDay.LyDo</h5>
+                    <p class="mb-1">
+                        <span class="time-label">Bắt đầu:</span>
+                        <span class="time-value start-time">@(leaveForDay.ThoiGianBatDau?.ToString("dd/MM/yyyy HH:mm") ?? "--")</span>
+                    </p>
+                    <p class="mb-1">
+                        <span class="time-label">Kết thúc:</span>
+                        <span class="time-value end-time">@(leaveForDay.ThoiGianKetThuc?.ToString("dd/MM/yyyy HH:mm") ?? "--")</span>
+                    </p>
+                    <small class="text-muted">Trạng thái: @leaveForDay.StatusDescription</small>
+                </div>
+            }
+            else if (selectedHistory != null && selectedHistory.Lines.Any())
+            {
+                <div class="day-details">
+                    @foreach (var line in selectedHistory.Lines.OrderBy(l => l.Buoi))
+                    {
+                        var gioBatDau = line.GioBatDau != TimeSpan.Zero ? line.GioBatDau.ToString(@"hh\:mm") : "--:--";
+                        var gioKetThuc = line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero ? line.GioKetThuc.ToString(@"hh\:mm") : "--:--";
+                        var isOnTime = IsOnTime(line.Buoi, line.GioBatDau);
+                        var onTimeText = isOnTime ? "Đúng giờ" : "Muộn";
+                        var statusText = line.Status == 1 ? "Đủ giờ" : (line.Status == 2 ? "Thiếu giờ" : "Chưa hoàn tất");
+
+                        <div class="buoi-card">
+                            <div class="buoi-header">
+                                <span class="buoi-title">@GetBuoiName(line.Buoi)</span>
+                            </div>
+                            <div class="buoi-info">
+                                <div class="info-row">
+                                    <span class="label">Giờ vào:</span>
+                                    <span class="value"><strong>@gioBatDau</strong> <span class="@(isOnTime ? "on-time" : "late")">(@onTimeText)</span></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Giờ ra:</span>
+                                    <span class="value">
+                                        <strong>@gioKetThuc</strong>
+                                        @if (line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero)
+                                        {
+                                            <span class="@(line.Status == 1 ? "enough-time" : "lack-time")">(@statusText)</span>
+                                        }
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="total-hours">
+                        <span>Tổng giờ làm:</span>
+                        <strong>@CalculateTotalHours(selectedHistory.Lines)</strong>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="day-details empty">
+                    <h2>Trống</h2>
+                    <p>Không có dữ liệu cho ngày này.</p>
+                </div>
+            }
+        </div>
+    }
+    @*
+    @if (selectedDay.HasValue)
+    {
+        <div class="day-details-container">
+            <h4 class="day-details-header">Chi tiết ngày @selectedDay.Value, @GetDayOfWeek(selectedMonth, selectedDay.Value)</h4>
+
+            @if (selectedHistory != null && selectedHistory.Lines.Any())
+            {
+                <div class="day-details">
+                    @foreach (var line in selectedHistory.Lines.OrderBy(l => l.Buoi))
+                    {
+                        var gioBatDau = line.GioBatDau != TimeSpan.Zero ? line.GioBatDau.ToString(@"hh\:mm") : "--:--";
+                        var gioKetThuc = line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero ? line.GioKetThuc.ToString(@"hh\:mm") : "--:--";
+                        var isOnTime = IsOnTime(line.Buoi, line.GioBatDau);
+                        var onTimeText = isOnTime ? "Đúng giờ" : "Muộn";
+                        var statusText = line.Status == 1 ? "Đủ giờ" : (line.Status == 2 ? "Thiếu giờ" : "Chưa hoàn tất");
+
+                        <div class="buoi-card">
+                            <div class="buoi-header">
+                                <span class="buoi-title">@GetBuoiName(line.Buoi)</span>
+                            </div>
+                            <div class="buoi-info">
+                                <div class="info-row">
+                                    <span class="label">Giờ vào:</span>
+                                    <span class="value"><strong>@gioBatDau</strong> <span class="@(isOnTime ? "on-time" : "late")">(@onTimeText)</span></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Giờ ra:</span>
+                                    <span class="value">
+                                        <strong>@gioKetThuc</strong>
+                                        @if (line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero)
+                                        {
+                                            <span class="@(line.Status == 1 ? "enough-time" : "lack-time")">(@statusText)</span>
+                                        }
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <div class="total-hours">
+                        <span>Tổng giờ làm:</span>
+                        <strong>@CalculateTotalHours(selectedHistory.Lines)</strong>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="day-details empty">
+                    <h2>Trống</h2>
+                    <p>Không có dữ liệu chấm công cho ngày này.</p>
+                </div>
+            }
+        </div>
+    }
+    *@
+</div>
+
+@code {
+    private string selectedMonth = DateTime.Now.ToString("yyyy-MM"); // Tháng/năm được hiển thị
+    private int _selectedMonthInput = DateTime.Now.Month; // Tháng được chọn từ dropdown
+    private int _selectedYearInput = DateTime.Now.Year; // Năm được chọn từ dropdown
+    private int? selectedDay = null;
+    private HistoryResponse? selectedHistory;
+    private decimal psnPrkID;
+    private bool isLoading = true;
+
+    private List<int> daysInMonth = new();
+    private List<HistoryResponse> monthlyRecords = new();
+    private List<LichNghiDb> leaveRequests = new();
+    private List<NghiLeDb> holidays = new();
+
+    // Biến cho thống kê
+    private int attendedDays = 0;
+    private string totalHoursInMonth = "0h 0p";
+    private int daysWithEnoughTime = 0;
+    private int daysWithLackTime = 0;
+    private int daysLate = 0;
+    private bool showStatisticsModal = false;
+
+    // Getter/Setter cho selectedMonthInput
+    private int selectedMonthInput
+    {
+        get => _selectedMonthInput;
+        set
+        {
+            if (_selectedMonthInput != value)
+            {
+                _selectedMonthInput = value;
+                selectedMonth = $"{selectedYearInput}-{_selectedMonthInput:00}";
+                _ = LoadHistory(); // Tự động tải dữ liệu
+            }
+        }
+    }
+
+    // Getter/Setter cho selectedYearInput
+    private int selectedYearInput
+    {
+        get => _selectedYearInput;
+        set
+        {
+            if (_selectedYearInput != value)
+            {
+                _selectedYearInput = value;
+                selectedMonth = $"{_selectedYearInput}-{_selectedMonthInput:00}";
+                _ = LoadHistory(); // Tự động tải dữ liệu
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        // Lấy psnPrkID từ localStorage giống Home
+        string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+
+        var accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+        if (accountObj == null || string.IsNullOrEmpty(accountObj.PsnPrkID))
+        {
+            Console.WriteLine("[ERROR] Dữ liệu account không hợp lệ!");
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        if (!decimal.TryParse(accountObj.PsnPrkID, out psnPrkID))
+        {
+            Console.WriteLine("[ERROR] PsnPrkID không hợp lệ!");
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadHistory();
+    }
+
+    async Task LoadHistory()
+    {
+        var selectedDate = DateTime.ParseExact(selectedMonth + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        int daysInSelectedMonth = DateTime.DaysInMonth(selectedDate.Year, selectedDate.Month);
+        daysInMonth = Enumerable.Range(1, daysInSelectedMonth).ToList();
+
+        try
+        {
+            isLoading = true;
+            monthlyRecords = await ChamCongService.GetChamCongHistoryAsync(psnPrkID, selectedDate.Month, selectedDate.Year);
+
+            // Tải lịch nghỉ phép
+            leaveRequests = await LichNghiService.GetLichNghiByPsnPrkID((int)psnPrkID);
+            // Tải ngày nghỉ lễ (sửa tên phương thức)
+            holidays = await LichNghiService.GetHolidaysAsync(selectedDate.Month, selectedDate.Year);
+
+            foreach (var leave in leaveRequests)
+            {
+                Console.WriteLine($"Leave: ID={leave.LichNghiID}, Status={leave.Status}, Start={leave.ThoiGianBatDau}, End={leave.ThoiGianKetThuc}");
+            }
+            // Tính toán thống kê
+            CalculateStatistics();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("Blazored.Toast.ShowToast", "Lỗi", $"Không tải được lịch sử: {ex.Message}", "red");
+            monthlyRecords = new List<HistoryResponse>();
+            leaveRequests = new List<LichNghiDb>();
+            holidays = new List<NghiLeDb>();
+            attendedDays = 0;
+            totalHoursInMonth = "0h 0p";
+            daysWithEnoughTime = 0;
+            daysWithLackTime = 0;
+            daysLate = 0;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CalculateStatistics()
+    {
+        // Số ngày đã làm: Đếm số ngày duy nhất có chấm công
+        var attendedDates = monthlyRecords
+            .GroupBy(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date)
+            .Select(g => g.Key)
+            .ToList();
+
+        // Thêm các ngày lễ từ thứ Hai đến thứ Sáu vào danh sách ngày công
+        var selectedDate = DateTime.ParseExact(selectedMonth + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var holidayDates = holidays
+            .Where(h => h.HolidayDate.Month == selectedDate.Month && h.HolidayDate.Year == selectedDate.Year)
+            .Select(h => h.HolidayDate.Date)
+            .Where(date => date.DayOfWeek >= DayOfWeek.Monday && date.DayOfWeek <= DayOfWeek.Friday)
+            .ToList();
+
+        // Kết hợp ngày chấm công và ngày lễ
+        attendedDates = attendedDates.Union(holidayDates).Distinct().ToList();
+        attendedDays = attendedDates.Count;
+
+        // Tổng số giờ làm
+        TimeSpan totalHours = TimeSpan.Zero;
+        foreach (var record in monthlyRecords)
+        {
+            foreach (var line in record.Lines)
+            {
+                if (line.GioBatDau != TimeSpan.Zero && line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero)
+                {
+                    var duration = line.GioKetThuc - line.GioBatDau;
+                    if (duration.TotalHours >= 0)
+                    {
+                        totalHours += duration;
+                    }
+                }
+            }
+        }
+
+        // Cộng thêm 8 giờ cho mỗi ngày lễ từ thứ Hai đến thứ Sáu
+        foreach (var holiday in holidayDates)
+        {
+            if (!monthlyRecords.Any(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date == holiday))
+            {
+                totalHours += TimeSpan.FromHours(8); // Cộng 8 giờ nếu ngày lễ không có chấm công
+            }
+        }
+
+        totalHoursInMonth = totalHours == TimeSpan.Zero ? "0h 0p" : $"{(int)totalHours.TotalHours}h {totalHours.Minutes}p";
+
+        // Số ngày làm đủ giờ, thiếu giờ và đi muộn
+        daysWithEnoughTime = 0;
+        daysWithLackTime = 0;
+        daysLate = 0;
+        var groupedByDay = monthlyRecords
+            .GroupBy(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date);
+
+        foreach (var dayGroup in groupedByDay)
+        {
+            bool hasEnoughTimeInDay = false;
+            bool hasLackTimeInDay = false;
+            bool hasLateInDay = false;
+
+            foreach (var record in dayGroup)
+            {
+                foreach (var line in record.Lines)
+                {
+                    if (line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero)
+                    {
+                        if (line.Status == 1)
+                        {
+                            hasEnoughTimeInDay = true;
+                        }
+                        else if (line.Status == 2)
+                        {
+                            hasLackTimeInDay = true;
+                        }
+                    }
+
+                    // Tính trạng thái Đúng giờ/Muộn dựa trên GioBatDau
+                    if (line.Buoi.HasValue && !IsOnTime(line.Buoi, line.GioBatDau))
+                    {
+                        hasLateInDay = true;
+                    }
+                }
+            }
+
+            if (hasEnoughTimeInDay)
+            {
+                daysWithEnoughTime++;
+            }
+            if (hasLackTimeInDay)
+            {
+                daysWithLackTime++;
+            }
+            if (hasLateInDay)
+            {
+                daysLate++;
+            }
+        }
+
+        // Cộng thêm số ngày đủ giờ cho ngày lễ (giả sử ngày lễ luôn đủ 8 giờ)
+        daysWithEnoughTime += holidayDates.Count(h => !monthlyRecords.Any(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date == h));
+    }
+
+    // Hàm kiểm tra Đúng giờ/Muộn dựa trên GioBatDau
+    private bool IsOnTime(int? buoi, TimeSpan gioBatDau)
+    {
+        if (!buoi.HasValue)
+        {
+            return true; // Mặc định đúng giờ nếu không xác định được buổi
+        }
+
+        if (buoi == 1) // Buổi sáng
+        {
+            return gioBatDau <= new TimeSpan(8, 0, 0); // Trước 8:00 sáng
+        }
+        else if (buoi == 2) // Buổi chiều
+        {
+            return gioBatDau <= new TimeSpan(13, 30, 0); // Trước 13:30
+        }
+        return true; // Mặc định đúng giờ nếu không xác định được buổi
+    }
+
+    bool IsAttendanceDay(int day)
+    {
+        var dayDate = DateTime.ParseExact($"{selectedMonth}-{day:00}", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return monthlyRecords.Any(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date == dayDate.Date);
+    }
+
+    void ShowDetails(int day)
+    {
+        selectedDay = day;
+        var selectedDate = DateTime.ParseExact($"{selectedMonth}-{day:00}", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        selectedHistory = monthlyRecords.FirstOrDefault(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date == selectedDate.Date);
+        @*
+        if (selectedHistory == null || !selectedHistory.Lines.Any())
+        {
+            selectedDay = null; // Reset nếu không có dữ liệu
+        }
+        *@
+    }
+
+    void GoBack()
+    {
+        Navigation.NavigateTo("/home");
+    }
+
+    string GetMonthInVietnamese(string month)
+    {
+        if (string.IsNullOrEmpty(month))
+            return "";
+        var parsedDate = DateTime.ParseExact(month + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return parsedDate.ToString("'Tháng' M 'năm' yyyy", new CultureInfo("vi-VN"));
+    }
+
+    // Phương thức mới để xác định trạng thái của ngày
+    private string GetDayStatus(int day)
+    {
+        var dayDate = DateTime.ParseExact($"{selectedMonth}-{day:00}", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var dayRecords = monthlyRecords.Where(r => new DateTime(r.NamCC, r.ThangCC, r.NgayCC).Date == dayDate.Date).ToList();
+
+        if (!dayRecords.Any())
+        {
+            return "not-attended"; // Không có chấm công
+        }
+
+        // Kiểm tra trạng thái của tất cả Lines trong ngày
+        bool hasEnoughTime = false;
+        bool hasLackTime = false;
+
+        foreach (var record in dayRecords)
+        {
+            foreach (var line in record.Lines)
+            {
+                if (line.GioKetThuc != null && line.GioKetThuc != TimeSpan.Zero) // Chỉ xét nếu đã Check-Out
+                {
+                    if (line.Status == 1)
+                    {
+                        hasEnoughTime = true;
+                    }
+                    else if (line.Status == 2)
+                    {
+                        hasLackTime = true;
+                    }
+                }
+            }
+        }
+
+        if (hasEnoughTime && !hasLackTime)
+        {
+            return "enough-time"; // Ngày đủ giờ (xanh lá)
+        }
+        else if (hasLackTime)
+        {
+            return "lack-time"; // Ngày thiếu giờ (cam)
+        }
+        return "not-attended"; // Mặc định nếu không xác định được
+    }
+
+    private string CalculateTotalHours(List<ChamCongLineModel> lines)
+    {
+        if (!lines.Any()) return "0h";
+
+        TimeSpan total = TimeSpan.Zero;
+        foreach (var line in lines)
+        {
+            if (line.GioBatDau != TimeSpan.Zero && line.GioKetThuc != TimeSpan.Zero)
+            {
+                var duration = line.GioKetThuc - line.GioBatDau;
+                if (duration.TotalHours >= 0)
+                    total += duration;
+            }
+        }
+        return $"{(int)total.TotalHours}h {total.Minutes}p";
+    }
+
+    private bool IsValidMonthFormat(string month)
+    {
+        if (string.IsNullOrEmpty(month)) return false;
+        return DateTime.TryParseExact(month + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+    }
+
+    // Hàm mới để lấy tên buổi
+    private string GetBuoiName(int? buoi)
+    {
+        return buoi switch
+        {
+            1 => "Buổi sáng",
+            2 => "Buổi chiều",
+            _ => "Không xác định"   
+        };
+    }
+
+    // Hàm mới để lấy ngày trong tuần
+    private string GetDayOfWeek(string month, int day)
+    {
+        if (string.IsNullOrEmpty(month) || !IsValidMonthFormat(month))
+            return "";
+        var selectedDate = DateTime.ParseExact($"{month}-{day:00}", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return selectedDate.ToString("dddd", new CultureInfo("vi-VN"));
+    }
+
+    private async Task ShowStatistics()
+    {
+        showStatisticsModal = true;
+        // Đợi DOM cập nhật xong, sau đó vẽ biểu đồ
+        await Task.Delay(100); // Đợi một chút để modal hiển thị
+        await DrawChart();
+    }
+
+    private async Task DrawChart()
+    {
+        var chartData = new
+        {
+            labels = new[] { "Đủ giờ", "Thiếu giờ", "Đi muộn" },
+            datasets = new[]
+            {
+                new
+                {
+                    label = "Số ngày",
+                    data = new[] { daysWithEnoughTime, daysWithLackTime, daysLate },
+                    backgroundColor = new[] { "#34d399", "#dc2626", "#f59e0b" },
+                    borderColor = new[] { "#2ea78b", "#b91c1c", "#d97706" },
+                    borderWidth = 1
+                }
+            }
+        };
+        var chartOptions = new
+        {
+            responsive = true,
+            maintainAspectRatio = false,
+            plugins = new
+            {
+                legend = new { display = false },
+                title = new { display = false }
+            },
+            scales = new
+            {
+                y = new
+                {
+                    beginAtZero = true,
+                    ticks = new { stepSize = 1 }
+                }
+            }
+        };
+
+        await JSRuntime.InvokeVoidAsync("drawChart", "statsChart", "bar", chartData, chartOptions);
+    }
+
+    private async Task HideStatisticsModal()
+    {
+        showStatisticsModal = false;
+        // Hủy biểu đồ khi đóng modal để tránh lỗi khi mở lại
+        await JSRuntime.InvokeVoidAsync("destroyChart", "statsChart");
+    }
+}
+
+<!-- Nhúng JavaScript trực tiếp trong file .razor -->
+<script>
+    let chartInstance = null;
+
+    window.drawChart = (canvasId, type, data, options) => {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+
+        // Hủy biểu đồ cũ nếu tồn tại
+        if (chartInstance) {
+            chartInstance.destroy();
+        }
+
+        // Tạo biểu đồ mới
+        chartInstance = new Chart(ctx, {
+            type: type,
+            data: data,
+            options: options
+        });
+    };
+
+    window.destroyChart = (canvasId) => {
+        if (chartInstance) {
+            chartInstance.destroy();
+            chartInstance = null;
+        }
+    };
+</script>

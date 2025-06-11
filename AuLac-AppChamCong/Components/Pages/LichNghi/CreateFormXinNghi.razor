@@ -1,0 +1,233 @@
+﻿@page "/addLichNghi"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Services
+@using System.Text.Json
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject LichNghiServices LichNghiService
+
+<div class="container my-3">
+    <div class="header">
+        <button class="back-btn" @onclick="TroVe">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <h2 class="page-title mb-3">Đăng Ký Nghỉ Phép</h2>
+        <div class="icon-placeholder"></div>
+    </div>
+    <div class="card shadow-sm p-3">
+        <div class="form-group mb-3">
+            <label for="loaiNghiID" class="form-label fw-semibold">Loại Nghỉ</label>
+            <select class="form-select form-select-lg" id="loaiNghiID" @bind="leaveRequest.LoaiNghiID">
+                <option value="0" disabled selected>Chọn loại nghỉ...</option>
+                <option value="1">Nghỉ phép</option>
+                <option value="2">Nghỉ ốm</option>
+                <option value="3">Nghỉ thai sản</option>
+                <option value="4">Nghỉ kết hôn</option>
+                <option value="5">Nghỉ không phép</option>
+                <option value="6">Nghỉ đào tạo</option>
+                <option value="7">Nghỉ lễ</option>
+            </select>
+        </div>
+
+        <div class="col mb-3 gx-2">
+            <div class="col-12">
+                <div class="form-group">
+                    <label for="thoiGianBatDau" class="form-label fw-semibold">Thời Gian Bắt Đầu</label>
+                    <input type="datetime-local" class="form-control form-control-lg" id="thoiGianBatDau"
+                           @bind="leaveRequest.ThoiGianBatDau" @bind:event="oninput" />
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="form-group">
+                    <label for="thoiGianKetThuc" class="form-label fw-semibold">Thời Gian Kết Thúc</label>
+                    <input type="datetime-local" class="form-control form-control-lg" id="thoiGianKetThuc"
+                           @bind="leaveRequest.ThoiGianKetThuc" @bind:event="oninput" />
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="lyDo" class="form-label fw-semibold">Lý Do</label>
+            <textarea class="form-control" id="lyDo" rows="3" placeholder="Nhập lý do nghỉ phép"
+                      @bind="leaveRequest.LyDo" @bind:event="oninput"></textarea>
+        </div>
+
+        <div class="d-flex justify-content-between mt-3">
+            <button type="button" class="btn btn-primary btn-lg w-45" @onclick="HandleSubmit" disabled="@isLoading">
+                <i class="bi bi-send me-2"></i>@(isLoading ? "Đang gửi..." : "Gửi")
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-lg w-45" @onclick="Cancel">
+                <i class="bi bi-x-circle me-2"></i>Hủy
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @(success ? "alert-success" : "alert-danger") mt-3" role="alert">
+                @message
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private LichNghiDb leaveRequest = new LichNghiDb
+        {
+            LoaiNghiID = 0,
+            ThoiGianBatDau = DateTime.Now,
+            ThoiGianKetThuc = DateTime.Now,
+            LyDo = string.Empty,
+            Status = 0 // Default to Pending
+        };
+    private string message = string.Empty;
+    private bool success = false;
+    private bool isLoading = false;
+
+    private async Task HandleSubmit()
+    {
+        if (isLoading) return;
+
+        isLoading = true;
+        message = string.Empty;
+        StateHasChanged(); // Cập nhật UI để hiển thị "Đang gửi..."
+
+        try
+        {
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            Console.WriteLine($"localStorage 'account' value: '{accountJson}'");
+
+            if (string.IsNullOrWhiteSpace(accountJson))
+            {
+                message = "❌ Không tìm thấy thông tin tài khoản trong localStorage!";
+                success = false;
+                isLoading = false;
+                StateHasChanged(); // Cập nhật UI ngay lập tức
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            var account = JsonSerializer.Deserialize<UserAccount>(accountJson);
+
+            if (leaveRequest.LoaiNghiID == 0)
+            {
+                message = "⚠ Vui lòng chọn loại nghỉ!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(leaveRequest.LyDo))
+            {
+                message = "⚠ Vui lòng nhập lý do nghỉ phép!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+            if (leaveRequest.ThoiGianKetThuc < leaveRequest.ThoiGianBatDau)
+            {
+                message = "⚠ Thời gian kết thúc phải sau thời gian bắt đầu!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            if (!int.TryParse(account.PsnPrkID, out int psnPrkId))
+            {
+                message = "❌ ID tài khoản không hợp lệ!";
+                success = false;
+                isLoading = false;
+                StateHasChanged();
+                await ShowMessageTemporarily();
+                return;
+            }
+
+            string loaiNghiName = leaveRequest.LoaiNghiID switch
+            {
+                1 => "Nghỉ phép",
+                2 => "Nghỉ ốm",
+                3 => "Nghỉ thai sản",
+                4 => "Nghỉ kết hôn",
+                5 => "Nghỉ không phép",
+                6 => "Nghỉ đào tạo",
+                7 => "Nghỉ lễ",
+                _ => string.Empty
+            };
+
+            var lichNghiDb = new LichNghiDb
+                {
+                    PsnPrkID = psnPrkId,
+                    LoaiNghiID = leaveRequest.LoaiNghiID,
+                    LoaiNghiName = loaiNghiName,
+                    ThoiGianBatDau = leaveRequest.ThoiGianBatDau,
+                    ThoiGianKetThuc = leaveRequest.ThoiGianKetThuc,
+                    LyDo = leaveRequest.LyDo,
+                    Status = 0,
+                    NgayNopDon = DateTime.Now
+                };
+
+            var result = await LichNghiService.CreateLichNghiAsync(lichNghiDb);
+            Console.WriteLine($"Raw API response: '{result}'");
+
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                message = "❌ Không nhận được phản hồi từ server!";
+                success = false;
+            }
+            else
+            {
+                message = "✅ Gửi đơn nghỉ thành công!";
+                success = true;
+                ResetForm();
+            }
+            StateHasChanged(); // Cập nhật UI để hiển thị thông báo ngay lập tức
+            await ShowMessageTemporarily();
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Lỗi khi gửi đơn nghỉ: {ex.Message}";
+            success = false;
+            StateHasChanged(); // Cập nhật UI để hiển thị lỗi
+            await ShowMessageTemporarily();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged(); // Cập nhật UI sau khi hoàn tất
+        }
+    }
+
+    private void TroVe()
+    {
+        Navigation.NavigateTo("/home", true);
+    }
+
+    private void ResetForm()
+    {
+        leaveRequest = new LichNghiDb
+            {
+                LoaiNghiID = 0,
+                ThoiGianBatDau = DateTime.Now,
+                ThoiGianKetThuc = DateTime.Now,
+                LyDo = string.Empty,
+                Status = 0
+            };
+    }
+
+    private async Task ShowMessageTemporarily()
+    {
+        if (!string.IsNullOrEmpty(message)) // Chỉ chạy nếu có thông báo
+        {
+            await Task.Delay(3000); // Hiển thị trong 3 giây
+            message = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/home");
+    }
+}

@@ -1,0 +1,72 @@
+﻿body {
+    background-color: #2284ba;
+    font-family: 'Roboto', sans-serif; /* Sử dụng font dễ nhìn */
+}
+
+.login-card {
+    border-radius: 1rem;
+    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
+    background: #fff; /* Card có nền trắng để nổi bật */
+    padding: 2rem;
+}
+
+    .login-card .form-control {
+        height: 50px;
+        font-size: 16px;
+    }
+
+.btn-primary {
+    background-color: #007bff;
+    border: none;
+    font-size: 18px;
+    padding: 15px;
+    border-radius: 5px;
+}
+
+    .btn-primary:hover {
+        background-color: #0056b3;
+    }
+
+.contact-text {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 16px;
+    color: white;
+}
+
+.logo {
+    width: 130px;
+    height: auto;
+    margin-bottom: 1rem;
+    border-radius: 10px;
+}
+
+h2 {
+    font-family: 'Times New Roman', serif;
+    margin-bottom: 1.5rem;
+    color: #333;
+}
+
+.input-group {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.input-field {
+    width: 100%;
+    padding: 0.5rem;
+    border-radius: 10px;
+    border: 2px solid #cccccc;
+    font-size: 16px;
+}
+
+.eye-icon {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 20px;
+    cursor: pointer;
+    opacity: 0

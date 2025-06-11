@@ -1,0 +1,568 @@
+﻿@page "/historyForm"
+@using AuLac_AppChamCong.Models
+@using AuLac_AppChamCong.Models.DonCongTac
+@using AuLac_AppChamCong.Models.ToaDo
+@using AuLac_AppChamCong.Models.ViewModels
+@using AuLac_AppChamCong.Services
+@using Newtonsoft.Json
+@using System.Net
+@using System.Net.Sockets
+@using Microsoft.Maui.Devices.Sensors
+@using Microsoft.Maui.ApplicationModel
+@inject DonCongTacServices _donCongTacService
+@inject ChamCongServices _chamCongService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="container my-4">
+    <div class="header mb-4 d-flex align-items-center">
+        <button class="btn btn-outline-secondary me-3" @onclick="GoBack">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <h2 class="page-title fw-bold text-primary m-0 flex-grow-1">Lịch Sử Đơn Công Tác</h2>
+    </div>
+
+    <div class="card shadow-sm p-4 bg-light rounded-3">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+                    <span class="visually-hidden">Đang tải...</span>
+                </div>
+                <p class="mt-3 text-muted fs-5">Đang tải dữ liệu...</p>
+            </div>
+        }
+        else if (historyList == null || !historyList.Any())
+        {
+            <div class="alert alert-info text-center py-4 rounded-3" role="alert">
+                <i class="bi bi-info-circle-fill me-2 fs-4"></i>
+                <span class="fs-5">Không có lịch sử đơn công tác nào.</span>
+            </div>
+        }
+        else
+        {
+            <div class="row g-4">
+                @foreach (var history in historyList)
+                {
+                    <div class="col-12 col-md-6 col-lg-4">
+                        <div class="card h-100 border-0 shadow-sm rounded-3 history-card">
+                            <div class="card-body p-4">
+                                <h6 class="card-title fw-bold text-dark mb-4 fs-5">
+                                    <i class="bi bi-file-earmark-text me-2 text-primary"></i>
+                                    Đơn Công Tác #@history.MngDonCongTacPrkID
+                                </h6>
+                                <div class="d-flex flex-wrap gap-3 mb-4">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-geo-alt-fill me-2 text-muted fs-5"></i>
+                                        <strong class="text-muted me-1">Nơi Công Tác:</strong>
+                                        <span class="fs-6">@history.NoiCongTac</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-calendar-date me-2 text-muted fs-5"></i>
+                                        <strong class="text-muted me-1">Ngày Công Tác:</strong>
+                                        <span class="fs-6">@history.NgayCongTac.ToString("dd/MM/yyyy")</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-chat-left-text-fill me-2 text-muted fs-5"></i>
+                                        <strong class="text-muted me-1">Lý Do:</strong>
+                                        <span class="fs-6">@history.LyDo</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-check-circle-fill me-2 text-muted fs-5"></i>
+                                        <strong class="text-muted me-1">Trạng Thái:</strong>
+                                        <span class="@GetStatusClass(history.Status ?? 0) rounded-pill px-3 py-1 fs-6">
+                                            @history.StatusDescription
+                                        </span>
+                                    </div>
+                                </div>
+                                @if (history.Status == 1)
+                                {
+                                    <button class="btn btn-primary w-100 d-flex align-items-center justify-content-center gap-2 py-2 fs-6" @onclick="() => ShowConfirmModal(history)">
+                                        <i class="bi @(hasPendingCheckIn ? "bi-box-arrow-right" : "bi-box-arrow-in-left")"></i>
+                                        <strong>@(hasPendingCheckIn ? "Check-Out Từ Xa" : "Check-In Từ Xa")</strong>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Toast Notification -->
+@if (!string.IsNullOrEmpty(toastMessage))
+{
+    <div class="toast-notification shadow-lg" style="background-color: @toastColor;">
+        <div class="d-flex align-items-center">
+            <i class="bi @(toastColor == "green" ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-2 fs-5"></i>
+            <span>@toastMessage</span>
+        </div>
+    </div>
+}
+
+<!-- Confirmation Modal -->
+@if (showConfirmModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content rounded-3 shadow-lg">
+                <div class="modal-header border-0 pb-1">
+                    <h5 class="modal-title fw-bold text-primary fs-6">Xác nhận chấm công</h5>
+                    <button type="button" class="btn-close btn-close-sm" @onclick="HideConfirmModal"></button>
+                </div>
+                <div class="modal-body pt-0 pb-2">
+                    <p class="fs-6 mb-0">Bạn có muốn <strong>@(hasPendingCheckIn ? "Check-Out" : "Check-In") từ xa</strong> cho đơn công tác <strong>#@selectedHistory?.MngDonCongTacPrkID</strong> không?</p>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary px-3 py-1 fs-6" @onclick="HideConfirmModal">Không</button>
+                    <button type="button" class="btn btn-primary px-3 py-1 fs-6" @onclick="ConfirmChamCong">Có</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .page-title {
+        font-size: 1.75rem;
+        letter-spacing: 0.5px;
+    }
+
+    .history-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+        .history-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15) !important;
+        }
+
+    .btn-primary {
+        background-color: #007bff;
+        border: none;
+        transition: background-color 0.3s ease;
+    }
+
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+
+    .btn-outline-secondary {
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+        .btn-outline-secondary:hover {
+            background-color: #6c757d;
+            color: white;
+        }
+
+    .toast-notification {
+        position: fixed;
+        top: 20%;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 20px;
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        z-index: 1100; /* Higher than modal (1050) */
+        max-width: 350px;
+        font-size: 1rem;
+        animation: slideIn 0.5s ease-out;
+    }
+
+    @@keyframes slideIn {
+        from {
+            transform: translateX(-50%) translateY(-20px);
+            opacity: 0;
+        }
+
+        to {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+    }
+
+    .modal {
+        z-index: 1050;
+    }
+
+    .modal-content {
+        border: none;
+    }
+
+    .modal-sm {
+        max-width: 300px;
+    }
+
+    .modal-title {
+        font-size: 1rem;
+    }
+
+    .modal-body {
+        font-size: 0.875rem;
+    }
+
+    .modal-footer .btn {
+        font-size: 0.875rem;
+        border-radius: 5px;
+    }
+
+    .btn-close-sm {
+        width: 0.8em;
+        height: 0.8em;
+    }
+
+    /* Đảm bảo các mục thông tin hiển thị inline */
+    .d-flex.align-items-center strong,
+    .d-flex.align-items-center span {
+        display: inline;
+    }
+</style>
+
+@code {
+    private List<DonCongTac> historyList = new();
+    private bool isLoading = true;
+    private int psnPrkID;
+    private string toastMessage = "";
+    private string toastColor = "";
+    private bool showConfirmModal = false;
+    private DonCongTac selectedHistory;
+    private bool hasPendingCheckIn = false;
+    private CancellationTokenSource toastCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        toastCts = new CancellationTokenSource();
+        string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+        if (string.IsNullOrEmpty(accountJson))
+        {
+            Console.WriteLine("[ERROR] Không tìm thấy dữ liệu account trong localStorage!");
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        var accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+        if (accountObj == null || string.IsNullOrEmpty(accountObj.PsnPrkID))
+        {
+            Console.WriteLine("[ERROR] Dữ liệu account không hợp lệ!");
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        if (!int.TryParse(accountObj.PsnPrkID, out psnPrkID))
+        {
+            Console.WriteLine("[ERROR] PsnPrkID không hợp lệ!");
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await GetHistoryForm();
+        await LoadCheckInStatus();
+    }
+
+    private async Task GetHistoryForm()
+    {
+        try
+        {
+            Console.WriteLine($"Fetching history for PsnPrkID: {psnPrkID}");
+            historyList = await _donCongTacService.GetHistoryFormAsync(psnPrkID);
+            Console.WriteLine($"History List Count: {historyList.Count}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+            historyList = new List<DonCongTac>();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCheckInStatus()
+    {
+        try
+        {
+            int currentBuoi = DateTime.Now.Hour < 12 ? 1 : 2;
+            DateTime today = DateTime.Now;
+            var history = await _chamCongService.GetChamCongHistoryAsync(psnPrkID, today.Month, today.Year);
+            hasPendingCheckIn = history != null && history
+                .Where(h => h.NgayCC == today.Day && h.ThangCC == today.Month && h.NamCC == today.Year)
+                .SelectMany(h => h.Lines)
+                .Any(l => l.Buoi == currentBuoi && l.GioBatDau != TimeSpan.Zero && l.GioKetThuc == TimeSpan.Zero);
+            Console.WriteLine($"[DEBUG] hasPendingCheckIn: {hasPendingCheckIn}, Buoi: {currentBuoi}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] LoadCheckInStatus: {ex.Message}");
+            hasPendingCheckIn = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ShowConfirmModal(DonCongTac history)
+    {
+        selectedHistory = history;
+        showConfirmModal = true;
+        StateHasChanged();
+    }
+
+    private void HideConfirmModal()
+    {
+        showConfirmModal = false;
+        selectedHistory = null;
+        ClearToast();
+        StateHasChanged();
+    }
+
+    private async Task ConfirmChamCong()
+    {
+        if (selectedHistory != null)
+        {
+            await ChamCongTuXa(selectedHistory);
+            // Chờ một chút để người dùng thấy thông báo Check-In/Check-Out
+            await Task.Delay(2000); // Hiển thị toast trong 2 giây
+            HideConfirmModal();
+        }
+    }
+
+    private void ClearToast()
+    {
+        if (toastCts != null)
+        {
+            toastCts.Cancel();
+            toastCts.Dispose();
+        }
+        toastMessage = "";
+        toastColor = "";
+        toastCts = new CancellationTokenSource();
+    }
+
+    private async Task ChamCongTuXa(DonCongTac history)
+    {
+        try
+        {
+            // Kiểm tra và yêu cầu quyền vị trí
+            bool hasPermission = await RequestLocationPermission();
+            if (!hasPermission)
+            {
+                await ShowToast("Ứng dụng chưa được cấp quyền truy cập vị trí!", "red");
+                return;
+            }
+
+            // Lấy vị trí hiện tại
+            Location currentLocation = await Geolocation.GetLastKnownLocationAsync();
+            if (currentLocation == null)
+            {
+                var request = new GeolocationRequest(GeolocationAccuracy.Medium, TimeSpan.FromSeconds(10));
+                currentLocation = await Geolocation.GetLocationAsync(request);
+            }
+            if (currentLocation == null)
+            {
+                await ShowToast("Không thể lấy vị trí hiện tại!", "red");
+                return;
+            }
+
+            var toaDo = new ToaDo
+                {
+                    Latitude = currentLocation.Latitude,
+                    Longitude = currentLocation.Longitude
+                };
+
+            // Lấy tọa độ của nơi công tác
+            var workLocation = await _donCongTacService.GetCoordinatesForNoiCongTac(history.NoiCongTac);
+            if (workLocation == null || workLocation.Latitude == 0 || workLocation.Longitude == 0)
+            {
+                await ShowToast("Không thể xác định tọa độ nơi công tác!", "red");
+                return;
+            }
+
+            // Tính khoảng cách bằng phương thức Haversine của ToaDo
+            double distance = ToaDo.Haversine(
+                toaDo.Latitude, toaDo.Longitude,
+                workLocation.Latitude, workLocation.Longitude
+            );
+
+            // Đặt ngưỡng khoảng cách (1000 mét)
+            const double maxDistanceMeters = 500.0;
+            if (distance > maxDistanceMeters)
+            {
+                await ShowToast($"Bạn không ở gần nơi công tác ({history.NoiCongTac})!", "red");
+                return;
+            }
+
+            // Lấy thông tin tài khoản
+            string accountJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "account");
+            if (string.IsNullOrEmpty(accountJson))
+            {
+                await ShowToast("Không tìm thấy dữ liệu tài khoản!", "red");
+                return;
+            }
+
+            UserAccount accountObj = JsonConvert.DeserializeObject<UserAccount>(accountJson);
+            if (accountObj == null || string.IsNullOrEmpty(accountObj.PsnPrkID))
+            {
+                await ShowToast("Dữ liệu tài khoản không hợp lệ!", "red");
+                return;
+            }
+
+            int currentBuoi = DateTime.Now.Hour < 12 ? 1 : 2;
+            DateTime currentTime = DateTime.Now;
+
+            if (hasPendingCheckIn)
+            {
+                // Thực hiện Check-Out
+                var checkOutModel = new ChamCongLineModel
+                    {
+                        UserWritePrkID = Decimal.Parse(accountObj.PsnPrkID),
+                        Buoi = currentBuoi,
+                        NgayCham = currentTime.Date,
+                        GioKetThuc = currentTime.TimeOfDay,
+                        Status = 4
+                    };
+
+                var response = await _chamCongService.CheckOutAsync(checkOutModel);
+                if (!string.IsNullOrEmpty(response) && response.Contains("thành công", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasPendingCheckIn = false;
+                    await ShowToast("Check-Out thành công!", "green");
+                }
+                else
+                {
+                    await ShowToast("Check-Out thất bại!", "red");
+                }
+            }
+            else
+            {
+                // Thực hiện Check-In
+                var checkInModel = new ChamCongLineModel
+                    {
+                        MngChamCongPrkID = 0,
+                        Buoi = currentBuoi,
+                        ChamCong = 3,
+                        UserWritePrkID = Decimal.Parse(accountObj.PsnPrkID),
+                        NgayCham = currentTime,
+                        GioBatDau = currentTime.TimeOfDay,
+                        ComputerIP = await GetLocalIPAddress(),
+                        ComputerName = DeviceInfo.Current.Name ?? "Unknown Device"
+                    };
+
+                var checkInHeader = new ChamCongHeaderModel
+                    {
+                        PsnPrkID = Decimal.Parse(accountObj.PsnPrkID),
+                        ThangCC = currentTime.Month,
+                        NamCC = currentTime.Year,
+                        NgayCC = currentTime.Day
+                    };
+                var response = await _chamCongService.ChamCongTuXa(checkInHeader,checkInModel);
+                if (!string.IsNullOrEmpty(response) && response.Contains("thành công", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasPendingCheckIn = true;
+                    await ShowToast("Check-In thành công!", "green");
+                }
+                else
+                {
+                    await ShowToast("Check-In thất bại!", "red");
+                }
+            }
+
+            // Cập nhật lại trạng thái sau chấm công
+            await LoadCheckInStatus();
+        }
+        catch (Exception ex)
+        {
+            await ShowToast($"Lỗi khi chấm công: {ex.Message}", "red");
+            Console.WriteLine($"[ERROR] ChamCongTuXa: {ex.Message}");
+        }
+    }
+
+    private async Task<bool> RequestLocationPermission()
+    {
+        try
+        {
+            var status = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+            if (status != PermissionStatus.Granted)
+            {
+                status = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+            }
+            return status == PermissionStatus.Granted;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] RequestLocationPermission: {ex.Message}");
+            await ShowToast("Lỗi khi yêu cầu quyền vị trí!", "red");
+            return false;
+        }
+    }
+
+    private async Task ShowToast(string message, string color)
+    {
+        // Hủy toast trước đó nếu có
+        if (toastCts != null)
+        {
+            toastCts.Cancel();
+            toastCts.Dispose();
+        }
+        toastCts = new CancellationTokenSource();
+
+        try
+        {
+            // Hiển thị toast mới
+            toastMessage = message;
+            toastColor = color;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] ShowToast: {ex.Message}");
+        }
+    }
+
+    private async Task<string> GetLocalIPAddress()
+    {
+        try
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    return ip.ToString();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Không thể lấy IP nội bộ: {ex.Message}");
+        }
+        return "Unknown IP";
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/home");
+    }
+
+    private string GetStatusClass(int status)
+    {
+        return status switch
+        {
+            0 => "badge bg-warning text-dark",
+            1 => "badge bg-success text-white",
+            -1 => "badge bg-danger text-white",
+            _ => "badge bg-secondary text-white"
+        };
+    }
+
+    public void Dispose()
+    {
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}
